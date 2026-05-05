@@ -15,9 +15,6 @@ export function MechanicHint({
         and local supply.
       </p>
       <button onClick={onOpen}>View Mechanic Tree</button>
-      <span className="hint-lamp" aria-hidden>
-        💡
-      </span>
     </section>
   );
 }

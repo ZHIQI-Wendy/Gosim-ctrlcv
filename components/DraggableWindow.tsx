@@ -103,7 +103,7 @@ export function DraggableWindow({
           });
         }}
       >
-        <small>{label}</small>
+        <span>{label}</span>
         <button className="window-close" onClick={onClose} aria-label={`Close ${label}`}>
           ×
         </button>

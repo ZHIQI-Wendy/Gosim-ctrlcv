@@ -14,11 +14,12 @@ import { classifyCommand } from "@/lib/commandClassifier";
 import { aiTick } from "@/lib/aiTick";
 import { formatCampaignTime } from "@/lib/time";
 
-type SpeedLevel = "SLOW" | "NORMAL" | "FAST";
+export type SpeedLevel = "SLOW" | "NORMAL" | "FAST";
 
-const REAL_SECONDS_PER_GAME_HOUR = 1;
-const COMMAND_BATCH_EVERY_GAME_HOURS = 2;
-const COMMANDS_PER_BATCH = 2;
+const REAL_SECONDS_PER_GAME_HOUR = 6;
+const COMMAND_BATCH_EVERY_GAME_HOURS = 0.5;
+const COMMANDS_PER_BATCH = 1;
+const SPEED_LEVELS: SpeedLevel[] = ["SLOW", "NORMAL", "FAST"];
 
 const SPEED_MULTIPLIER: Record<SpeedLevel, number> = {
   SLOW: 0.5,
@@ -28,19 +29,23 @@ const SPEED_MULTIPLIER: Record<SpeedLevel, number> = {
 
 const initialGameState: GameStateData = {
   timeLeft: 48,
-  parisThreat: 48,
-  germanAdvance: 44,
-  flankGap: 38,
-  morale: 62,
-  fatigue: 20,
-  supply: 68,
-  railwayCongestion: 54,
-  cityStability: 70,
+  currentTime: Date.UTC(1914, 8, 5, 18, 0, 0),
+  parisThreat: 72,
+  germanAdvance: 68,
+  flankGap: 15,
+  morale: 55,
+  fatigue: 60,
+  supply: 65,
+  railwayCongestion: 70,
+  redeployEfficiency: 100,
+  cityStability: 65,
   cityVehiclesDiscovered: false,
   cityVehiclesUsed: false,
-  politicalPressure: 42,
-  commandCohesion: 58,
+  politicalPressure: 60,
+  commandCohesion: 70,
   counterattackMomentum: 0,
+  counterattackSuccess: false,
+  pendingRailOptimizationTicks: 0,
   outcomeScores: {
     miracleMarne: 0,
     logisticsMaster: 0,
@@ -70,6 +75,14 @@ function makeReport(tick: number, title: string, body: string, timeLeftHours: nu
   };
 }
 
+function clampSpeedLevel(level: SpeedLevel, direction: -1 | 1): SpeedLevel {
+  const nextIndex = Math.min(
+    SPEED_LEVELS.length - 1,
+    Math.max(0, SPEED_LEVELS.indexOf(level) + direction)
+  );
+  return SPEED_LEVELS[nextIndex];
+}
+
 interface GameStore {
   game: GameStateData;
   orderQueue: OrderItem[];
@@ -84,9 +97,9 @@ interface GameStore {
   tick: number;
   enqueueCommand: (text: string) => void;
   runTick: (realSecondsElapsed: number) => void;
-  stepTick: () => void;
   togglePause: () => void;
-  setSpeedLevel: (speed: SpeedLevel) => void;
+  decreaseSpeed: () => void;
+  increaseSpeed: () => void;
   setFocus: (focus: StrategicFocus) => void;
   selectCity: (city: CityId) => void;
   closeCityPopup: () => void;
@@ -140,7 +153,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         id: "intro-report",
         tick: 0,
         title: "Paris Emergency Window",
-        body: "48 hours remain. Real-time mapping is 1 real second = 1 game hour.",
+        body: "Paris is under threat.",
         dateLabel: formatCampaignTime(48)
       }
     ],
@@ -149,7 +162,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       {
         id: "intro-line",
         speaker: "Adviser",
-        text: "Clock reset complete: each real second advances one game hour at normal speed."
+        text: "Clock reset complete: each 6 real seconds advance one game hour at normal speed."
       }
     ],
     selectedFocus: "DEFEND_PARIS",
@@ -187,14 +200,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       runSimulationStep(gameHoursElapsed, false);
     },
 
-    stepTick: () => runSimulationStep(2, true),
-
     togglePause: () => {
       set((prev) => ({ isPaused: !prev.isPaused }));
     },
 
-    setSpeedLevel: (speedLevel) => {
-      set(() => ({ speedLevel }));
+    decreaseSpeed: () => {
+      set((prev) => ({ speedLevel: clampSpeedLevel(prev.speedLevel, -1) }));
+    },
+
+    increaseSpeed: () => {
+      set((prev) => ({ speedLevel: clampSpeedLevel(prev.speedLevel, 1) }));
     },
 
     setFocus: (focus) => set(() => ({ selectedFocus: focus })),
@@ -273,6 +288,8 @@ export const useGameStore = create<GameStore>((set, get) => {
 
       const cityFocus: Record<CityId, StrategicFocus> = {
         paris: "DEFEND_PARIS",
+        meaux: "COUNTER_STRIKE",
+        chateauThierry: "COUNTER_STRIKE",
         marne: "COUNTER_STRIKE",
         verdun: "DELAY_GERMANS",
         reims: "BOOST_RECON"
@@ -310,7 +327,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             id: "intro-report-reset",
             tick: 0,
             title: "Paris Emergency Window",
-            body: "48 hours remain. Real-time mapping is 1 real second = 1 game hour.",
+            body: "Paris is under threat.",
             dateLabel: formatCampaignTime(48)
           }
         ],

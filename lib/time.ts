@@ -1,4 +1,4 @@
-const CAMPAIGN_START_UTC = Date.UTC(1914, 8, 6, 6, 0, 0);
+const CAMPAIGN_START_UTC = Date.UTC(1914, 8, 5, 18, 0, 0);
 
 export function formatCampaignTime(timeLeftHours: number): string {
   const elapsedMinutes = Math.max(0, Math.round((48 - timeLeftHours) * 60));

@@ -53,4 +53,5 @@ coverage/
 *.pem
 
 old/
+*.prompt.md
 package-lock.json

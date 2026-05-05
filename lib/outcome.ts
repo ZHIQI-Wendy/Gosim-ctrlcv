@@ -1,64 +1,25 @@
 import {GameStateData, OutcomeKey} from "@/types";
 
-const outcomeKeys: OutcomeKey[] = [
-    "miracleMarne",
-    "logisticsMaster",
-    "tacticalGamble",
-    "costlyStalemate",
-    "parisPoliticalCrisis",
-    "germanBreakthrough",
-    "ahistoricalCollapse"
-];
-
 export function shouldEndGame(state: GameStateData): boolean {
     if (state.ending) return true;
     if (state.timeLeft <= 0) return true;
     if (state.parisThreat >= 100) return true;
     if (state.germanAdvance >= 100) return true;
     if (state.morale <= 0) return true;
-    if (state.outcomeScores.ahistoricalCollapse >= 60) return true;
-    if (state.outcomeScores.germanBreakthrough >= 70) return true;
     return false;
 }
 
 export function resolveEnding(state: GameStateData): OutcomeKey {
-    if (state.outcomeScores.ahistoricalCollapse >= 50) {
-        return "ahistoricalCollapse";
-    }
-
-    if (state.parisThreat >= 95) {
-        return state.politicalPressure > 60 || state.cityStability < 35
-            ? "parisPoliticalCrisis"
-            : "germanBreakthrough";
-    }
-
-    if (state.germanAdvance >= 100) {
+    if (state.parisThreat >= 100 || state.germanAdvance >= 100 || state.morale <= 0) {
         return "germanBreakthrough";
     }
 
-    if (state.morale <= 0) {
-        return "parisPoliticalCrisis";
-    }
-
-    const parisSaved = state.parisThreat < 90 && state.germanAdvance < 95;
-
-    if (state.cityVehiclesUsed && parisSaved) {
-        return "miracleMarne";
-    }
-
-    if (!state.cityVehiclesUsed && state.railwayCongestion <= 40 && parisSaved) {
-        return "logisticsMaster";
-    }
-
-    if (state.flankGap > 70 && state.counterattackMomentum > 35 && parisSaved) {
-        return "tacticalGamble";
-    }
-
-    const best = outcomeKeys.reduce((maxKey, key) => {
-        return state.outcomeScores[key] > state.outcomeScores[maxKey] ? key : maxKey;
-    }, outcomeKeys[0]);
-
-    return best || "costlyStalemate";
+    if (state.outcomeScores.ahistoricalCollapse > 50) return "ahistoricalCollapse";
+    if (state.cityVehiclesUsed && state.parisThreat < 80) return "miracleMarne";
+    if (!state.cityVehiclesUsed && state.railwayCongestion < 50) return "logisticsMaster";
+    if (state.flankGap > 70 && state.counterattackSuccess) return "tacticalGamble";
+    if (state.politicalPressure > 80) return "parisPoliticalCrisis";
+    return "costlyStalemate";
 }
 
 export const endingNarrative: Record<OutcomeKey, string> = {

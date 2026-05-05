@@ -29,7 +29,7 @@ export type OutcomeKey =
     | "germanBreakthrough"
     | "ahistoricalCollapse";
 
-export type CityId = "paris" | "marne" | "verdun" | "reims";
+export type CityId = "paris" | "marne" | "verdun" | "reims" | "meaux" | "chateauThierry";
 
 export interface OutcomeScores {
     miracleMarne: number;
@@ -43,6 +43,7 @@ export interface OutcomeScores {
 
 export interface GameStateData {
     timeLeft: number;
+    currentTime: number;
     parisThreat: number;
     germanAdvance: number;
     flankGap: number;
@@ -50,12 +51,15 @@ export interface GameStateData {
     fatigue: number;
     supply: number;
     railwayCongestion: number;
+    redeployEfficiency: number;
     cityStability: number;
     cityVehiclesDiscovered: boolean;
     cityVehiclesUsed: boolean;
     politicalPressure: number;
     commandCohesion: number;
     counterattackMomentum: number;
+    counterattackSuccess: boolean;
+    pendingRailOptimizationTicks: number;
     outcomeScores: OutcomeScores;
     ending: OutcomeKey | null;
 }
@@ -68,6 +72,7 @@ export interface CommandEffects {
     fatigue?: number;
     supply?: number;
     railwayCongestion?: number;
+    redeployEfficiency?: number;
     cityStability?: number;
     politicalPressure?: number;
     commandCohesion?: number;

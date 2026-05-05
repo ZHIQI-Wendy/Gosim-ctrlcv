@@ -2,6 +2,8 @@ import { CityId, OutcomeKey, StrategicFocus } from "@/types";
 
 export const cityNodes: Array<{ id: CityId; label: string; x: number; y: number }> = [
   { id: "paris", label: "Paris", x: 30, y: 33 },
+  { id: "meaux", label: "Meaux", x: 42, y: 38 },
+  { id: "chateauThierry", label: "Chateau-Thierry", x: 48, y: 46 },
   { id: "marne", label: "Marne", x: 47, y: 43 },
   { id: "reims", label: "Reims", x: 59, y: 31 },
   { id: "verdun", label: "Verdun", x: 72, y: 46 }

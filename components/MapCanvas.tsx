@@ -51,28 +51,44 @@ export function MapCanvas({
                 <path d="M130 610 C300 500, 530 460, 730 480 C980 510, 1180 600, 1360 700" stroke="#29211a"
                       strokeWidth="8" fill="none"/>
 
-                <path d="M1100 200 C980 250, 900 320, 860 420" stroke="#b23d30" strokeWidth="10" fill="none"
-                      strokeDasharray="20 12"/>
-                <polygon points="845,425 900,410 873,462" fill="#b23d30"/>
-                <path d="M650 760 C740 700, 840 630, 960 590" stroke="#2f4f8f" strokeWidth="10" fill="none"
-                      strokeDasharray="20 12"/>
-                <polygon points="968,590 918,580 936,630" fill="#2f4f8f"/>
+                <path d="M1260 220 C1160 250, 1030 300, 945 382 C905 420, 910 470, 980 530" stroke="#b23d30"
+                      strokeWidth="8" fill="none" strokeDasharray="16 12" opacity="0.86"/>
+                <polygon points="995,536 952,526 970,567" fill="#b23d30" opacity="0.9"/>
+                <path d="M1450 248 C1330 290, 1200 350, 1120 460" stroke="#b23d30" strokeWidth="8" fill="none"
+                      strokeDasharray="16 12" opacity="0.8"/>
+                <polygon points="1112,470 1148,452 1140,492" fill="#b23d30" opacity="0.88"/>
+                <path d="M1610 280 C1530 340, 1460 430, 1398 520" stroke="#a45f57" strokeWidth="6" fill="none"
+                      strokeDasharray="14 10" opacity="0.45"/>
 
-                <rect x="920" y="360" width="290" height="230" fill="url(#hatch)" opacity="0.75"/>
-                <rect x="920" y="360" width="290" height="230" fill="none" stroke="#4f3020" strokeWidth="4"/>
-                <text x="945" y="410" fill="#311f14" fontSize="30" fontFamily="Georgia">Marne Gap / High Risk</text>
+                <path d="M558 392 C650 392, 758 390, 860 420" stroke="#2f4f8f" strokeWidth="8" fill="none"
+                      strokeDasharray="16 12" opacity="0.9"/>
+                <polygon points="874,426 834,410 838,448" fill="#2f4f8f"/>
+                <path d="M760 640 C760 590, 768 540, 778 486" stroke="#2f4f8f" strokeWidth="8" fill="none"
+                      strokeDasharray="16 12" opacity="0.88"/>
+                <polygon points="780,470 760,506 800,504" fill="#2f4f8f"/>
+                <path d="M880 588 C920 545, 970 505, 1024 470" stroke="#2f4f8f" strokeWidth="7" fill="none"
+                      strokeDasharray="14 10" opacity="0.82"/>
+                <polygon points="1035,462 996,466 1018,495" fill="#2f4f8f"/>
 
-                <rect x="560" y="520" width="24" height="24" fill="#2f4f8f"/>
-                <rect x="610" y="500" width="24" height="24" fill="#2f4f8f"/>
-                <rect x="1080" y="400" width="24" height="24" fill="#b23d30"/>
-                <rect x="1140" y="380" width="24" height="24" fill="#b23d30"/>
+                <path d="M890 330 L1180 385 L1280 500 L1010 575 L835 500 Z" fill="#d8b447" opacity="0.34"/>
+                <path d="M890 330 L1180 385 L1280 500 L1010 575 L835 500 Z" fill="none" stroke="#83662c"
+                      strokeWidth="3" strokeDasharray="12 10" opacity="0.7"/>
+                <text x="905" y="440" fill="#3c2b11" fontSize="28" fontFamily="Georgia">Potential Gap</text>
+                <text x="905" y="476" fill="#3c2b11" fontSize="24" fontFamily="Georgia">Unsecured Frontline</text>
 
-                <text x="1220" y="110" fill="#2d2116" fontSize="35" fontFamily="Georgia">German
-                    Advance: {Math.round(germanAdvance)}</text>
-                <text x="1220" y="160" fill="#2d2116" fontSize="32" fontFamily="Georgia">Paris
-                    Threat: {Math.round(parisThreat)}</text>
-                <text x="1220" y="210" fill="#2d2116" fontSize="30" fontFamily="Georgia">Flank
-                    Gap: {Math.round(flankGap)}</text>
+                <rect x="1030" y="310" width="18" height="18" fill="#b23d30"/>
+                <rect x="1086" y="340" width="18" height="18" fill="#b23d30"/>
+                <rect x="958" y="402" width="18" height="18" fill="#b23d30"/>
+                <rect x="1180" y="360" width="18" height="18" fill="#b23d30"/>
+                <rect x="1240" y="410" width="18" height="18" fill="#b23d30"/>
+                <rect x="1408" y="444" width="16" height="16" fill="#9e6e67" opacity="0.66"/>
+
+                <rect x="590" y="380" width="18" height="18" fill="#2f4f8f"/>
+                <rect x="648" y="384" width="18" height="18" fill="#2f4f8f"/>
+                <rect x="728" y="620" width="18" height="18" fill="#2f4f8f"/>
+                <rect x="788" y="610" width="18" height="18" fill="#2f4f8f"/>
+                <rect x="900" y="566" width="18" height="18" fill="#2f4f8f"/>
+                <rect x="950" y="550" width="18" height="18" fill="#2f4f8f"/>
 
                 <rect width="1920" height="1080" fill="url(#fog)"/>
             </svg>

@@ -47,24 +47,22 @@ function actionTemplate(action: AllowedAction): { report: string; effects: Comma
         case "DEFEND":
             return {
                 report: "French units reinforce inner defensive belts around Paris.",
-                effects: {parisThreat: -4, germanAdvance: -2, morale: 4, fatigue: 2, supply: -2}
+                effects: {parisThreat: -12, morale: 3, fatigue: 2, supply: -2}
             };
         case "DELAY":
             return {
                 report: "Rear-guard maneuvers trade space for time and slow German pace.",
-                effects: {germanAdvance: -5, parisThreat: -2, fatigue: 3, morale: 1, commandCohesion: -1}
+                effects: {germanAdvance: -8, fatigue: 3, morale: -2}
             };
         case "COUNTERATTACK":
             return {
                 report: "Local counterattack launched to exploit exposed German right flank.",
                 effects: {
-                    germanAdvance: -6,
-                    flankGap: 4,
-                    morale: 3,
-                    fatigue: 5,
-                    supply: -3,
-                    counterattackMomentum: 15,
-                    scores: {tacticalGamble: 8}
+                    germanAdvance: -15,
+                    morale: 8,
+                    flankGap: -20,
+                    counterattackMomentum: 20,
+                    scores: {tacticalGamble: 20}
                 }
             };
         case "REDEPLOY":
@@ -75,22 +73,21 @@ function actionTemplate(action: AllowedAction): { report: string; effects: Comma
         case "RECON":
             return {
                 report: "Recon flights and cavalry screens improve visibility of the front.",
-                effects: {flankGap: 5, germanAdvance: -1, commandCohesion: 2, supply: -1}
+                effects: {flankGap: 10}
             };
         case "OPTIMIZE_RAIL":
             return {
                 report: "Rail timetables are tightened to reduce transfer delays.",
                 effects: {
-                    railwayCongestion: -10,
-                    supply: 3,
-                    commandCohesion: 2,
-                    scores: {logisticsMaster: 6}
+                    railwayCongestion: -15,
+                    redeployEfficiency: 20,
+                    scores: {logisticsMaster: 10}
                 }
             };
         case "PROPAGANDA":
             return {
                 report: "Civil messaging campaign stabilizes morale and urban confidence.",
-                effects: {morale: 4, cityStability: 5, politicalPressure: -4, parisThreat: -1}
+                effects: {morale: 5, cityStability: 5}
             };
         case "GOVERNMENT_DECISION":
             return {
@@ -112,11 +109,11 @@ function actionTemplate(action: AllowedAction): { report: string; effects: Comma
                 report:
                     "Government channels tried to explore an unrealistic political shortcut; frontline orders became vague and delayed.",
                 effects: {
-                    morale: -8,
+                    morale: -5,
                     commandCohesion: -10,
-                    germanAdvance: 6,
-                    politicalPressure: 12,
-                    scores: {ahistoricalCollapse: 18}
+                    germanAdvance: 4,
+                    politicalPressure: 8,
+                    scores: {ahistoricalCollapse: 12}
                 }
             };
     }
