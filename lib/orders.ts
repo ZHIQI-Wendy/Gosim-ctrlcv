@@ -15,18 +15,34 @@ import {
 
 export type PublicEvent = ReportGeneratorInput["latestEvents"][number];
 
-function orderTiming(action: AllowedAction): { delayMinutes: number; durationMinutes: number } {
-  if (action === "OPTIMIZE_RAIL") {
-    return { delayMinutes: 30, durationMinutes: 90 };
-  }
-  return { delayMinutes: 0, durationMinutes: 0 };
+export function calculateTransmissionEfficiency(state: GameState): number {
+  const command = state.commandCohesion / 100;
+  const stability = state.cityStability / 100;
+  const pressure = 1 - state.politicalPressure / 100;
+  const threat = 1 - state.parisThreat / 100;
+  const rail = 1 - state.railwayCongestion / 100;
+
+  const weighted = command * 0.28 + stability * 0.2 + pressure * 0.18 + threat * 0.18 + rail * 0.16;
+  return clamp(0.45 + weighted, 0.35, 1.35);
+}
+
+function orderTiming(action: AllowedAction, transmissionEfficiency: number): { delayMinutes: number; durationMinutes: number } {
+  const efficiencyScale = clamp(transmissionEfficiency, 0.35, 1.35);
+  const baseDelay = action === "OPTIMIZE_RAIL" ? 30 : action === "REDEPLOY" ? 20 : 10;
+  const baseDuration = action === "OPTIMIZE_RAIL" ? 90 : 0;
+
+  return {
+    delayMinutes: Math.max(0, Math.round(baseDelay / efficiencyScale)),
+    durationMinutes: baseDuration
+  };
 }
 
 export function createOrderFromParserOutput(
   output: FrenchCommandParserOutput,
-  currentTimeMinutes: number
+  currentTimeMinutes: number,
+  state: GameState
 ): Order {
-  const timing = orderTiming(output.action);
+  const timing = orderTiming(output.action, calculateTransmissionEfficiency(state));
   return {
     id: makeId("order"),
     action: output.action,
@@ -421,6 +437,9 @@ export function applyGermanIntent(
 ): { event: string; publicEvent: PublicEvent } {
   const units = state.units.filter((unit) => intent.unitIds.includes(unit.id) && unit.side === "german");
 
+  const alreadyMovingToTarget = (unit: Unit): boolean =>
+    unit.role === "moving" && Boolean(intent.targetNodeId) && unit.movingTo === intent.targetNodeId;
+
   if (intent.action === "ATTACK") {
     units.forEach((unit) => {
       unit.stance = "attack";
@@ -431,7 +450,9 @@ export function applyGermanIntent(
   } else if (intent.action === "REDEPLOY") {
     units.forEach((unit) => {
       unit.stance = "hold";
-      if (intent.targetNodeId && intent.targetNodeId !== unit.nodeId) {
+      if (alreadyMovingToTarget(unit)) {
+        unit.momentum = clamp(unit.momentum - 2);
+      } else if (intent.targetNodeId && intent.targetNodeId !== unit.nodeId) {
         const plan = resolveTravelPlan(state, unit, intent.targetNodeId);
         unit.role = "moving";
         unit.movingTo = intent.targetNodeId;
@@ -448,7 +469,9 @@ export function applyGermanIntent(
   } else if (intent.action === "ADVANCE") {
     units.forEach((unit) => {
       unit.stance = "attack";
-      if (intent.targetNodeId && intent.targetNodeId !== unit.nodeId) {
+      if (alreadyMovingToTarget(unit)) {
+        unit.momentum = clamp(unit.momentum + 2);
+      } else if (intent.targetNodeId && intent.targetNodeId !== unit.nodeId) {
         const plan = resolveTravelPlan(state, unit, intent.targetNodeId);
         unit.role = "moving";
         unit.movingTo = intent.targetNodeId;

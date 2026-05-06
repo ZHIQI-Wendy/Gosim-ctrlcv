@@ -63,6 +63,36 @@ textarea {
     overflow: hidden;
 }
 
+.viewport-frame.is-pending .war-room {
+    filter: blur(5px);
+    transform: scale(1.004);
+}
+
+.pending-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    background: rgba(6, 10, 16, 0.26);
+    backdrop-filter: blur(3px);
+    pointer-events: all;
+}
+
+.pending-card {
+    min-width: 240px;
+    padding: 18px 20px;
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    text-align: center;
+}
+
+.pending-card p {
+    margin: 0;
+    color: #dfd0af;
+}
+
 .map-canvas {
     position: fixed;
     inset: 0;
@@ -216,6 +246,99 @@ textarea {
     margin: 4px 0 0;
     font-size: 13px;
     color: #d6c299;
+}
+
+.demo-controller {
+    position: absolute;
+    top: 156px;
+    left: 18px;
+    z-index: 5;
+    width: min(360px, calc(100vw - 36px));
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+    background: linear-gradient(180deg, rgba(21, 31, 46, 0.95), rgba(13, 20, 31, 0.95));
+}
+
+.demo-controller-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.demo-controller-head p {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #d7c8a6;
+}
+
+.demo-mode-switch {
+    display: inline-flex;
+    border: 1px solid rgba(211, 180, 124, 0.35);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.demo-mode-switch button,
+.demo-scenario-button {
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+}
+
+.demo-mode-switch button {
+    min-width: 50px;
+    padding: 7px 12px;
+    color: #eadbb8;
+    background: rgba(114, 89, 56, 0.22);
+}
+
+.demo-mode-switch button.active {
+    color: #20150d;
+    background: linear-gradient(180deg, #e4cb99, #b18f5c);
+}
+
+.demo-scenario-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.demo-scenario-button {
+    padding: 10px 12px;
+    text-align: left;
+    color: #f5e7c6;
+    background: linear-gradient(180deg, rgba(87, 71, 47, 0.84), rgba(55, 42, 27, 0.92));
+    border: 1px solid rgba(228, 199, 145, 0.24);
+    border-radius: 10px;
+    transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.demo-scenario-button:hover:enabled,
+.demo-scenario-button.running {
+    transform: translateY(-1px);
+    border-color: rgba(243, 216, 164, 0.55);
+    background: linear-gradient(180deg, rgba(119, 92, 54, 0.92), rgba(72, 54, 31, 0.96));
+}
+
+.demo-scenario-button:disabled,
+.demo-mode-switch button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.demo-controller-status {
+    display: grid;
+    gap: 5px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(224, 196, 147, 0.18);
+}
+
+.demo-controller-status small {
+    color: #dcccab;
+    line-height: 1.35;
 }
 
 .status-meters {
@@ -598,21 +721,69 @@ textarea {
 }
 
 .city-window {
-    width: 300px;
+    width: 260px;
 }
 
 .city-popup {
     width: 100%;
+    display: grid;
+    gap: 10px;
 }
 
 .city-popup p {
-    margin: 0.1em;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.city-popup-status {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(214, 190, 143, 0.18);
+}
+
+.city-popup-status span {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #d8c9a6;
+}
+
+.city-popup-status strong {
+    color: #f1e3bf;
+}
+
+.city-popup-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+}
+
+.city-popup-bars {
+    display: grid;
+    gap: 8px;
 }
 
 .popup-meter {
-    display: grid;
-    gap: 4px;
-    margin: 8px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0;
+}
+
+.popup-meter span {
+    font-size: 12px;
+    color: #d9cbab;
+    white-space: nowrap;
+}
+
+.popup-meter .meter-shell {
+    max-width: 70%;
+    margin-left: auto;
 }
 
 .warning {

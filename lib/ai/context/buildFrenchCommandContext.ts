@@ -8,9 +8,10 @@ export function buildFrenchCommandContext(
   selectedUnitId?: string,
   recentEvents: string[] = []
 ): FrenchCommandParserInput {
+  const normalizedText = rawText.replace(/^\s*/i, "").trim();
   const orderContext = buildOrderContext(state);
   return {
-    rawText,
+    rawText: normalizedText,
     selectedNodeId,
     selectedUnitId,
     visibleState: {

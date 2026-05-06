@@ -10,6 +10,10 @@ import { governmentDecisionMock } from "@/lib/ai/governmentDecisionMock";
 import { reportGeneratorAI } from "@/lib/ai/reportGenerator";
 import { reportGeneratorMock } from "@/lib/ai/reportGeneratorMock";
 import {
+  isDemoDirectorEnabled
+} from "@/lib/demo/demoDirector";
+import { requestDemoJson } from "@/lib/demo/demoClient";
+import {
   ContractValidationResult,
   validateEnvironmentalAdjudicatorContract,
   validateFrenchCommandParserContract,
@@ -84,6 +88,16 @@ export async function getFrenchCommandDecision(
   input: FrenchCommandParserInput
 ): Promise<DecisionResult<FrenchCommandParserOutput>> {
   const subsystem = "FrenchCommandParser";
+  if (isDemoDirectorEnabled()) {
+    return {
+      output: safeMock(
+        subsystem,
+        await requestDemoJson<FrenchCommandParserOutput>("/api/demo/french-command", input),
+        validateFrenchCommandParserContract
+      ),
+      usedFallback: false
+    };
+  }
   if (GAME_CONFIG.frenchDecisionMode === "mock") {
     return {
       output: safeMock(subsystem, frenchCommandParserMock(input), validateFrenchCommandParserContract),
@@ -102,6 +116,16 @@ export async function getGermanCommanderDecision(
   input: GermanAgentInput
 ): Promise<DecisionResult<GermanAgentOutput>> {
   const subsystem = "GermanCommander";
+  if (isDemoDirectorEnabled()) {
+    return {
+      output: safeMock(
+        subsystem,
+        await requestDemoJson<GermanAgentOutput>("/api/demo/german-command", input),
+        validateGermanCommanderContract
+      ),
+      usedFallback: false
+    };
+  }
   if (GAME_CONFIG.germanDecisionMode === "mock") {
     return {
       output: safeMock(subsystem, germanCommanderMock(input), validateGermanCommanderContract),
@@ -120,6 +144,16 @@ export async function getEnvironmentalDecision(
   input: EnvironmentalAdjudicatorInput
 ): Promise<DecisionResult<EnvironmentalAdjudicatorOutput>> {
   const subsystem = "EnvironmentalAdjudicator";
+  if (isDemoDirectorEnabled()) {
+    return {
+      output: safeMock(
+        subsystem,
+        await requestDemoJson<EnvironmentalAdjudicatorOutput>("/api/demo/environmental", input),
+        validateEnvironmentalAdjudicatorContract
+      ),
+      usedFallback: false
+    };
+  }
   if (GAME_CONFIG.environmentalMode === "mock") {
     return {
       output: safeMock(subsystem, environmentalAdjudicatorMock(input), validateEnvironmentalAdjudicatorContract),
@@ -138,6 +172,16 @@ export async function getGovernmentDecision(
   input: GovernmentDecisionInput
 ): Promise<DecisionResult<GovernmentDecisionOutput>> {
   const subsystem = "GovernmentDecision";
+  if (isDemoDirectorEnabled()) {
+    return {
+      output: safeMock(
+        subsystem,
+        await requestDemoJson<GovernmentDecisionOutput>("/api/demo/government-decision", input),
+        validateGovernmentDecisionContract
+      ),
+      usedFallback: false
+    };
+  }
   if (GAME_CONFIG.governmentDecisionMode === "mock") {
     return {
       output: safeMock(subsystem, governmentDecisionMock(input), validateGovernmentDecisionContract),
@@ -156,6 +200,16 @@ export async function getReportDecision(
   input: ReportGeneratorInput
 ): Promise<DecisionResult<ReportGeneratorOutput>> {
   const subsystem = "ReportGenerator";
+  if (isDemoDirectorEnabled()) {
+    return {
+      output: safeMock(
+        subsystem,
+        await requestDemoJson<ReportGeneratorOutput>("/api/demo/report-generator", input),
+        validateReportGeneratorContract
+      ),
+      usedFallback: false
+    };
+  }
   if (GAME_CONFIG.reportMode === "mock") {
     return {
       output: safeMock(subsystem, reportGeneratorMock(input), validateReportGeneratorContract),

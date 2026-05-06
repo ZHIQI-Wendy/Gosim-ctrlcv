@@ -5,6 +5,9 @@ import { useMemo } from "react";
 import { GameStateData, MapNodeId, Point, Side, Unit } from "@/types";
 import { pointListToPathD } from "@/lib/movement";
 
+const VIEWBOX_WIDTH = 1400;
+const VIEWBOX_HEIGHT = 900;
+
 function lineClass(mode?: Unit["movementMode"]): string {
   if (mode === "rail") return "move-line-rail";
   if (mode === "road") return "move-line-road";
@@ -48,6 +51,19 @@ function groupedUnits(state: GameStateData): Record<MapNodeId, Unit[]> {
 
 function unitColorClass(side: Side): string {
   return side === "allied" ? "unit-square-allied" : "unit-square-german";
+}
+
+function projectNodePoint(svg: SVGSVGElement | null, point: Point): Point {
+  if (!svg) return point;
+
+  const rect = svg.getBoundingClientRect();
+  const scaleX = rect.width / VIEWBOX_WIDTH;
+  const scaleY = rect.height / VIEWBOX_HEIGHT;
+
+  return {
+    x: rect.left + point.x * scaleX,
+    y: rect.top + point.y * scaleY
+  };
 }
 
 export function MapCanvas({
@@ -176,7 +192,10 @@ export function MapCanvas({
                 key={node.id}
                 className={`map-city-node ${selectedNode === node.id ? "map-city-selected" : ""}`}
                 data-node-id={node.id}
-                onClick={(event) => onNodeSelect(node.id, { x: event.clientX, y: event.clientY })}
+                onClick={(event) => {
+                  const svg = event.currentTarget.ownerSVGElement;
+                  onNodeSelect(node.id, projectNodePoint(svg, node.point));
+                }}
               >
                 <circle className="map-city-hitbox" cx={node.point.x} cy={node.point.y} r={14} />
                 <circle className={`map-city-dot ${isMajor ? "map-city-major" : "map-city-minor"}`} cx={node.point.x} cy={node.point.y} r={isMajor ? 8 : 6} pointerEvents="none" />

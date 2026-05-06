@@ -204,7 +204,7 @@ async function runDecisionStep(
     }
 
     const safeOutput = validateFrenchParserOutput(state, parserDecision.output);
-    const order = createOrderFromParserOutput(safeOutput, state.currentTimeMinutes);
+    const order = createOrderFromParserOutput(safeOutput, state.currentTimeMinutes, state);
     state.orderQueue.push(order);
     consumedCount += 1;
 

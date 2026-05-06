@@ -5,6 +5,7 @@ import {useEffect, useState} from "react";
 import {BattleTimeline} from "@/components/BattleTimeline";
 import {CityPopup, cityTitles} from "@/components/CityPopup";
 import {CommandPanel} from "@/components/CommandPanel";
+import {DemoAutorun} from "@/components/DemoAutorun";
 import {DraggableWindow} from "@/components/DraggableWindow";
 import {EndingPanel} from "@/components/EndingPanel";
 import {MapCanvas} from "@/components/MapCanvas";
@@ -18,6 +19,7 @@ import {AllowedAction, Point} from "@/types";
 const UI_SCALE = 0.9;
 const CITY_WINDOW_OFFSET = {x: 16, y: 16};
 const CITY_WINDOW_FALLBACK_POSITION = {x: 590, y: 286};
+const DEMO_AUTORUN = process.env.NEXT_PUBLIC_DEMO_AUTORUN === "1";
 
 export default function Page() {
     const {
@@ -26,6 +28,7 @@ export default function Page() {
         selectedNodeId,
         pendingCommands,
         aiStatusText,
+        isDecisionPending,
         isPaused,
         speedLevel,
         runTick,
@@ -40,6 +43,7 @@ export default function Page() {
     } = useGameStore();
 
     const [selectedAction, setSelectedAction] = useState<AllowedAction>("DEFEND");
+    const [demoInput, setDemoInput] = useState("");
     const [cityWindowPosition, setCityWindowPosition] = useState(CITY_WINDOW_FALLBACK_POSITION);
 
     useEffect(() => {
@@ -60,7 +64,7 @@ export default function Page() {
     };
 
     return (
-        <main className="viewport-frame">
+        <main className={`viewport-frame ${isDecisionPending ? "is-pending" : ""}`}>
             <div className="war-room">
                 <MapCanvas game={game} selectedNode={selectedNodeId} onNodeSelect={handleNodeSelect}/>
 
@@ -92,11 +96,15 @@ export default function Page() {
                         aiStatusText={aiStatusText}
                         cityVehiclesDiscovered={game.cityVehiclesDiscovered}
                         cityVehiclesUsed={game.cityVehiclesUsed}
+                        inputValue={demoInput}
                         setAction={setSelectedAction}
+                        setInputValue={setDemoInput}
                         enqueueCommand={enqueueCommand}
                         mobilizeCityVehicles={mobilizeCityVehicles}
                     />
                 </aside>
+
+                {DEMO_AUTORUN ? <DemoAutorun setDemoInput={setDemoInput}/> : null}
 
                 <DraggableWindow
                     id="city-panel"
@@ -113,6 +121,15 @@ export default function Page() {
 
                 <EndingPanel ending={ending} onReset={reset}/>
             </div>
+            {isDecisionPending && (
+                <div className="pending-overlay" aria-live="polite" aria-busy="true">
+                    <div className="pending-card floating-panel">
+                        <span className="decision-spinner" aria-hidden />
+                        <strong>Director agent pending</strong>
+                        <p>Waiting for synchronous LLM response.</p>
+                    </div>
+                </div>
+            )}
         </main>
     );
 }

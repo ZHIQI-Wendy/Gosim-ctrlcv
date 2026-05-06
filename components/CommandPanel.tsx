@@ -3,7 +3,7 @@
 
 import { strategyOptions } from "@/data/mockGameState";
 import { AllowedAction, BattleReport } from "@/types";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface CommandPanelProps {
   selectedAction: AllowedAction;
@@ -13,22 +13,39 @@ interface CommandPanelProps {
   aiStatusText: string | null;
   cityVehiclesDiscovered: boolean;
   cityVehiclesUsed: boolean;
+  inputValue?: string;
   setAction: (action: AllowedAction) => void;
+  setInputValue?: (value: string) => void;
   enqueueCommand: (text: string) => void;
   mobilizeCityVehicles: () => void;
 }
 
 export function CommandPanel(props: CommandPanelProps) {
   const [text, setText] = useState("");
-  const count = text.length;
+  const liveText = props.inputValue ?? text;
+  const count = liveText.length;
 
-  const limitedText = useMemo(() => text.slice(0, 160), [text]);
+  useEffect(() => {
+    if (props.inputValue === undefined) return;
+    setText(props.inputValue);
+  }, [props.inputValue]);
+
+  const limitedText = useMemo(() => liveText.slice(0, 160), [liveText]);
+
+  const updateText = (value: string) => {
+    const next = value.slice(0, 160);
+    if (props.inputValue !== undefined) {
+      props.setInputValue?.(next);
+      return;
+    }
+    setText(next);
+  };
 
   const sendCommand = () => {
     const payload = limitedText.trim();
     if (!payload || props.disabled) return;
     props.enqueueCommand(payload);
-    setText("");
+    updateText("");
   };
 
   return (
@@ -69,15 +86,15 @@ export function CommandPanel(props: CommandPanelProps) {
       <div className="command-input-row">
         <input
           id="order-note"
-          value={text}
-          onChange={(event) => setText(event.target.value.slice(0, 160))}
+          value={liveText}
+          onChange={(event) => updateText(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
               sendCommand();
             }
           }}
-          placeholder="Add operational clarification..."
+          placeholder="Give your order clarification Général..."
           disabled={props.disabled}
         />
         <button className="issue-button" disabled={props.disabled} onClick={sendCommand} aria-label="Send command">

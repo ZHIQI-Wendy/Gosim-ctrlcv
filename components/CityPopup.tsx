@@ -35,6 +35,18 @@ function localThreat(game: GameStateData, city: MapNodeId): number {
   return Math.round((balance * 0.6 + game.parisThreat * 0.4));
 }
 
+function toneColor(value: number, palette: "threat" | "utility"): string {
+  if (palette === "threat") {
+    if (value > 75) return "#b1493f";
+    if (value > 50) return "#c28d43";
+    return "#6e8f54";
+  }
+
+  if (value > 75) return "#c9b06f";
+  if (value > 50) return "#9f9569";
+  return "#6f7c68";
+}
+
 export function CityPopup({ city, game }: { city: MapNodeId | null; game: GameStateData }) {
   if (!city) return null;
 
@@ -48,36 +60,60 @@ export function CityPopup({ city, game }: { city: MapNodeId | null; game: GameSt
 
   const threat = localThreat(game, city);
   const latestReport = game.reports[0]?.reportText ?? "No recent report.";
+  const unitSummary =
+    units.length === 0 ? "None" : units.map((unit) => `${unit.name} (${Math.round(unit.strength)})`).join(", ");
 
   return (
     <section className="city-popup">
-      <p style={{ margin: "auto" }}>
-        Local status: <strong>{threat > 75 ? "High Threat" : threat > 50 ? "Elevated" : "Guarded"}</strong>
-      </p>
+      <div className="city-popup-status">
+        <span>Local status</span>
+        <strong>{threat > 75 ? "High Threat" : threat > 50 ? "Elevated" : "Guarded"}</strong>
+      </div>
 
       <div className="popup-meter">
         <span>Local Threat</span>
         <div className="meter-shell">
-          <div className="meter-fill" style={{ width: `${threat}%`, background: "#b1493f" }} />
+          <div className="meter-fill" style={{ width: `${threat}%`, background: toneColor(threat, "threat") }} />
+        </div>
+      </div>
+
+      <div className="city-popup-meta">
+        <p>
+          Control: <strong>{node.control}</strong>
+        </p>
+        <p>Terrain: {node.type}</p>
+      </div>
+
+      <div className="city-popup-bars">
+        <div className="popup-meter">
+          <span>Defense</span>
+          <div className="meter-shell">
+            <div className="meter-fill" style={{ width: `${node.defenseValue}%`, background: toneColor(node.defenseValue, "utility") }} />
+          </div>
+        </div>
+
+        <div className="popup-meter">
+          <span>Transport</span>
+          <div className="meter-shell">
+            <div className="meter-fill" style={{ width: `${node.transportValue}%`, background: toneColor(node.transportValue, "utility") }} />
+          </div>
+        </div>
+
+        <div className="popup-meter">
+          <span>Supply</span>
+          <div className="meter-shell">
+            <div className="meter-fill" style={{ width: `${node.supplyValue}%`, background: toneColor(node.supplyValue, "utility") }} />
+          </div>
         </div>
       </div>
 
       <p>
-        Control: <strong>{node.control}</strong>
-      </p>
-      <p>Terrain: {node.type}</p>
-      <p>Defense value: {node.defenseValue}</p>
-      <p>Transport value: {node.transportValue}</p>
-      <p>Supply value: {node.supplyValue}</p>
-
-      <p>
-        Current units: {units.length === 0 ? "None" : units.map((unit) => `${unit.name} (${Math.round(unit.strength)})`).join(", ")}
+        Current units: {unitSummary}
       </p>
 
-      <p>Adjacent routes: {adjacent.length ? adjacent.join(", ") : "No adjacent routes"}</p>
-      <p>Common info: {node.commonInfo ?? "N/A"}</p>
-      <p>Special info: {node.specialInfo ?? "N/A"}</p>
-      <p className="warning">Latest report: {latestReport}</p>
+      {city === "paris" && game.railwayCongestion > 90 && (
+        <p className="warning">Taxi is free and run normally across Paris despite extreme rail congestion.</p>
+      )}
 
       {city === "paris" && game.cityVehiclesDiscovered && !game.cityVehiclesUsed && (
         <p className="warning">City vehicles discovered. Use a text command to requisition transport.</p>

@@ -24,6 +24,7 @@ import { gameMinutesFromRealSeconds, SpeedLevel } from "@/lib/timeLoop";
 import { clamp, makeId } from "@/lib/utils";
 import { validateEnvironmentalOutput, validateFrenchParserOutput, validateGermanOutput, validateGovernmentDecision, validateReportOutput } from "@/lib/validators";
 import { GAME_CONFIG } from "@/lib/config/gameConfig";
+import { buildAuditLinesFromPublicEvents, postActionAuditLines } from "@/lib/actionAudit";
 import {
   EndingType,
   GameState,
@@ -95,6 +96,12 @@ interface GameStore {
   mobilizeCityVehicles: () => void;
   dispatchCityForces: () => void;
   reset: () => void;
+  demoAdvanceHours: (hours: number) => void;
+  demoPushReport: (headline: string, reportText: string, advisorLine?: string, eventType?: string) => void;
+  demoMoveUnit: (unitId: string, nodeId: MapNodeId, overrides?: Partial<GameState["units"][number]>) => void;
+  demoSetEnding: (ending: EndingType | null) => void;
+  demoSetAiStatus: (status: string | null, pending?: boolean) => void;
+  demoClearPendingCommands: () => void;
 }
 
 const SPEED_LEVELS: SpeedLevel[] = ["SLOW", "NORMAL", "FAST"];
@@ -228,7 +235,7 @@ function applyDecisionBundleToGame(
   const livePublicEvents: PublicEvent[] = [];
 
   for (const output of bundle.parserOutputs) {
-    game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes));
+    game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes, game));
   }
 
   const germanResult = applyGermanIntent(game, bundle.germanOutput);
@@ -377,16 +384,13 @@ function runCombatStep(state: GameState): {
 async function resolveDecisionBundle(
   snapshotState: GameState,
   commands: PlayerCommandIntent[],
-  recentEvents: string[],
-  tone: ReportTone
+  recentEvents: string[]
 ): Promise<DecisionBundle> {
   const snapshot = cloneAndClampState(snapshotState);
   const eventLabels: string[] = [];
   const publicEvents: PublicEvent[] = [];
   const fallbackMessages: string[] = [];
-  const parserOutputs: ReturnType<typeof validateFrenchParserOutput>[] = [];
-
-  for (const command of commands) {
+  const parserPromises = commands.map((command) => {
     const parserInput = buildFrenchCommandContext(
       snapshot,
       command.rawText,
@@ -394,20 +398,31 @@ async function resolveDecisionBundle(
       command.selectedUnitId,
       recentEvents
     );
-    const parserDecision = await getFrenchCommandDecision(parserInput);
-    if (parserDecision.usedFallback) {
-      fallbackMessages.push(parserDecision.error ?? "French command parser AI failed");
+    return getFrenchCommandDecision(parserInput);
+  });
+
+  const germanPromise = getGermanCommanderDecision(buildGermanCommanderContext(snapshot, recentEvents));
+  const governmentPromise = getGovernmentDecision(buildGovernmentDecisionContext(snapshot, recentEvents));
+
+  const [parserResults, germanDecision, governmentDecision] = await Promise.all([
+    Promise.all(parserPromises),
+    germanPromise,
+    governmentPromise
+  ]);
+
+  const parserOutputs: ReturnType<typeof validateFrenchParserOutput>[] = [];
+  for (const parserResult of parserResults) {
+    if (parserResult.usedFallback) {
+      fallbackMessages.push(parserResult.error ?? "French command parser AI failed");
       eventLabels.push("AI fallback used");
     }
 
-    const safeOutput = validateFrenchParserOutput(snapshot, parserDecision.output);
+    const safeOutput = validateFrenchParserOutput(snapshot, parserResult.output);
     parserOutputs.push(safeOutput);
-    snapshot.orderQueue.push(createOrderFromParserOutput(safeOutput, snapshot.currentTimeMinutes));
+    snapshot.orderQueue.push(createOrderFromParserOutput(safeOutput, snapshot.currentTimeMinutes, snapshot));
     eventLabels.push(`Player order parsed: ${safeOutput.action}`);
   }
 
-  const germanInput = buildGermanCommanderContext(snapshot, recentEvents);
-  const germanDecision = await getGermanCommanderDecision(germanInput);
   if (germanDecision.usedFallback) {
     fallbackMessages.push(germanDecision.error ?? "German commander AI failed");
     eventLabels.push("AI fallback used");
@@ -423,48 +438,33 @@ async function resolveDecisionBundle(
   publicEvents.push(...orderOutcome.publicEvents);
 
   let governmentOutput: ReturnType<typeof validateGovernmentDecision> | undefined;
-  if (maybeNeedsGovernmentDecision(snapshot, recentEvents)) {
-    const govInput = buildGovernmentDecisionContext(snapshot, recentEvents);
-    const govDecision = await getGovernmentDecision(govInput);
-    if (govDecision.usedFallback) {
-      fallbackMessages.push(govDecision.error ?? "Government decision AI failed");
-      eventLabels.push("AI fallback used");
-    }
-
-    governmentOutput = validateGovernmentDecision(govDecision.output);
-    if (governmentOutput.trigger) {
-      snapshot.cityStability = clamp(snapshot.cityStability + governmentOutput.stateDelta.cityStability);
-      snapshot.politicalPressure = clamp(snapshot.politicalPressure + governmentOutput.stateDelta.politicalPressure);
-      snapshot.commandCohesion = clamp(snapshot.commandCohesion + governmentOutput.stateDelta.commandCohesion);
-      snapshot.governmentCollapseRisk = clamp(
-        snapshot.governmentCollapseRisk + governmentOutput.stateDelta.governmentCollapseRisk
-      );
-      snapshot.alliedOperationalMomentum = clamp(
-        snapshot.alliedOperationalMomentum + governmentOutput.stateDelta.alliedOperationalMomentum
-      );
-
-      eventLabels.push(`Government event: ${governmentOutput.action}`);
-      publicEvents.push({
-        type: "government_decision",
-        resultSummary: governmentOutput.publicMessage
-      });
-    }
+  if (governmentDecision.usedFallback) {
+    fallbackMessages.push(governmentDecision.error ?? "Government decision AI failed");
+    eventLabels.push("AI fallback used");
   }
 
-  let report: ReturnType<typeof validateReportOutput> | undefined;
-  if (publicEvents.length > 0 || fallbackMessages.length > 0) {
-    const reportDecision = await getReportDecision(buildReportContext(snapshot, publicEvents, tone));
-    if (reportDecision.usedFallback) {
-      fallbackMessages.push(reportDecision.error ?? "Report generator AI failed");
-    }
-    report = validateReportOutput(reportDecision.output);
-  }
+  governmentOutput = validateGovernmentDecision(governmentDecision.output);
+  snapshot.cityStability = clamp(snapshot.cityStability + governmentOutput.stateDelta.cityStability);
+  snapshot.politicalPressure = clamp(snapshot.politicalPressure + governmentOutput.stateDelta.politicalPressure);
+  snapshot.commandCohesion = clamp(snapshot.commandCohesion + governmentOutput.stateDelta.commandCohesion);
+  snapshot.governmentCollapseRisk = clamp(
+    snapshot.governmentCollapseRisk + governmentOutput.stateDelta.governmentCollapseRisk
+  );
+  snapshot.alliedOperationalMomentum = clamp(
+    snapshot.alliedOperationalMomentum + governmentOutput.stateDelta.alliedOperationalMomentum
+  );
+
+  eventLabels.push(`Government event: ${governmentOutput.action}`);
+  publicEvents.push({
+    type: "government_decision",
+    resultSummary: governmentOutput.publicMessage
+  });
 
   return {
     parserOutputs,
     germanOutput: safeGerman,
     governmentOutput,
-    report,
+    report: undefined,
     eventLabels,
     fallbackMessages
   };
@@ -546,16 +546,19 @@ export const useGameStore = create<GameStore>((set, get) => {
       aiStatusText: decisionStatusText(commands)
     }));
 
-    void resolveDecisionBundle(snapshotState, commands, recentEvents, tone)
+    void resolveDecisionBundle(snapshotState, commands, recentEvents)
       .then((bundle) => {
         const current = get();
         if (current.sessionId !== sessionId) return;
 
+        let auditLines: string[] = [];
         set((prev) => {
           if (prev.sessionId !== sessionId) return prev;
 
           const game = cloneAndClampState(prev.game);
-          const { events: liveEvents } = applyDecisionBundleToGame(game, bundle);
+          const applied = applyDecisionBundleToGame(game, bundle);
+          const liveEvents = applied.events;
+          auditLines = buildAuditLinesFromPublicEvents(game, applied.publicEvents);
 
           const mergedRecentEvents = mergeRecentEvents(prev.recentEvents, liveEvents);
           const ended = game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
@@ -571,6 +574,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             isDecisionPending: false
           };
         });
+        void postActionAuditLines(auditLines).catch(() => undefined);
       })
       .catch((error) => {
         const current = get();
@@ -706,6 +710,9 @@ export const useGameStore = create<GameStore>((set, get) => {
             const orderProgress = processOrders(game);
             stepEvents.push(...orderProgress.events);
             mergedPublicEvents = [...mergedPublicEvents, ...orderProgress.publicEvents];
+            void postActionAuditLines(buildAuditLinesFromPublicEvents(game, orderProgress.publicEvents)).catch(
+              () => undefined
+            );
 
             if (loopState.combatAccumulatorMinutes >= COMBAT_STEP_GAME_MINUTES) {
               loopState.combatAccumulatorMinutes -= COMBAT_STEP_GAME_MINUTES;
@@ -762,13 +769,11 @@ export const useGameStore = create<GameStore>((set, get) => {
             isDecisionPending = true;
 
             try {
-              const bundle = await resolveDecisionBundle(
-                game,
-                commandsForDecision,
-                recentEvents,
-                snapshot.reportTone
-              );
+              const bundle = await resolveDecisionBundle(game, commandsForDecision, recentEvents);
               const applied = applyDecisionBundleToGame(game, bundle);
+              void postActionAuditLines(buildAuditLinesFromPublicEvents(game, applied.publicEvents)).catch(
+                () => undefined
+              );
               recentEvents = mergeRecentEvents(recentEvents, applied.events);
             } catch (error) {
               appendFallbackReport(game, error instanceof Error ? error.message : String(error));
@@ -823,6 +828,9 @@ export const useGameStore = create<GameStore>((set, get) => {
             const orderProgress = processOrders(game);
             stepEvents.push(...orderProgress.events);
             mergedPublicEvents = [...mergedPublicEvents, ...orderProgress.publicEvents];
+            void postActionAuditLines(buildAuditLinesFromPublicEvents(game, orderProgress.publicEvents)).catch(
+              () => undefined
+            );
 
             if (loopState.combatAccumulatorMinutes >= COMBAT_STEP_GAME_MINUTES) {
               loopState.combatAccumulatorMinutes -= COMBAT_STEP_GAME_MINUTES;
@@ -972,6 +980,70 @@ export const useGameStore = create<GameStore>((set, get) => {
         aiStatusText: null,
         isDecisionPending: false,
         sessionId: prev.sessionId + 1
+      }));
+    },
+
+    demoAdvanceHours: (hours) => {
+      if (!Number.isFinite(hours) || hours <= 0) return;
+      set((prev) => {
+        const game = cloneAndClampState(prev.game);
+        game.currentTimeMinutes += Math.round(hours * 60);
+        return { game };
+      });
+    },
+
+    demoPushReport: (headline, reportText, advisorLine, eventType = "demo") => {
+      set((prev) => {
+        const game = cloneAndClampState(prev.game);
+        pushReport(game, {
+          headline: headline.slice(0, 120),
+          reportText: reportText.slice(0, 450),
+          advisorLine: advisorLine?.slice(0, 180),
+          eventType
+        });
+        return {
+          game,
+          recentEvents: mergeRecentEvents(prev.recentEvents, [`${headline}: ${reportText}`])
+        };
+      });
+    },
+
+    demoMoveUnit: (unitId, nodeId, overrides) => {
+      set((prev) => {
+        const game = cloneAndClampState(prev.game);
+        const unit = game.units.find((item) => item.id === unitId);
+        if (!unit) return prev;
+
+        unit.nodeId = nodeId;
+        unit.movingTo = undefined;
+        unit.travelProgress = undefined;
+        unit.role = overrides?.role ?? "front";
+        unit.stance = overrides?.stance ?? unit.stance;
+        unit.movementMode = undefined;
+        Object.assign(unit, overrides ?? {});
+
+        return { game };
+      });
+    },
+
+    demoSetEnding: (ending) => {
+      set((prev) => {
+        const game = cloneAndClampState(prev.game);
+        game.gameEnded = Boolean(ending);
+        return { game, ending };
+      });
+    },
+
+    demoSetAiStatus: (status, pending = false) => {
+      set(() => ({
+        aiStatusText: status,
+        isDecisionPending: pending
+      }));
+    },
+
+    demoClearPendingCommands: () => {
+      set(() => ({
+        pendingCommands: []
       }));
     }
   };
