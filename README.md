@@ -334,18 +334,6 @@ Player Intent
 
 ---
 
-# 🛠️ Tech Stack
-
-* Next.js
-* React
-* TailwindCSS
-* TypeScript
-* AI-supported multi-agent system
-* Situation propagation engine
-* Real-time simulation loop
-
----
-
 # 🧪 HCI × Education Focus
 
 This project explores:
@@ -363,16 +351,19 @@ This project explores:
 * counterfactual reasoning through simulation
 
 ---
-# Stack
 
-- Next.js (app shell)
-- React (UI)
-- PixiJS (battle map)
-- Zustand (state)
-- Local rule engine tick every 3 seconds
-- Local mock narrator interface (LLM optional)
+# 🛠️ Tech Stack
+
+* Next.js
+* React
+* TailwindCSS
+* TypeScript
+* AI-supported multi-agent system
+* Situation propagation engine
+* Real-time simulation loop
 
 ---
+
 
 # File Tree
 
