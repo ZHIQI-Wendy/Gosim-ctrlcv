@@ -3,6 +3,7 @@
 # 🎮 What If: Marne
 
 An AI-supported interactive historical strategy experience built for the **Gosim Hackathon (HCI × Education Track)**.
+<img width="1536" height="1024" alt="928283a0172eba25e2a6eb56a0d89562" src="https://github.com/user-attachments/assets/53f2ca06-9ea8-4735-a5d7-eb86772cf0fa" />
 
 ---
 
@@ -297,6 +298,11 @@ Replay memory is used to generate future scenario variants while preserving hist
 
 ---
 
+# Architecture Diagram
+<img width="1536" height="1024" alt="39acf6e2c063758a8e05690e54e81b05" src="https://github.com/user-attachments/assets/89e4b6bc-b97f-434c-adc1-0c124ebe65d7" />
+
+---
+
 # 🎓 Learning Through Gameplay
 
 Historical knowledge is embedded directly into gameplay instead of separate tutorials.
@@ -324,18 +330,7 @@ Player Intent
 → Battlefield Evolution
 → Historical Consequences
 ```
-
----
-
-# 🛠️ Tech Stack
-
-* Next.js
-* React
-* TailwindCSS
-* TypeScript
-* AI-supported multi-agent system
-* Situation propagation engine
-* Real-time simulation loop
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/781a7e6c-f2d6-46e3-b04f-340da0ae668a" />
 
 ---
 
@@ -355,16 +350,22 @@ This project explores:
 * experiential learning
 * counterfactual reasoning through simulation
 
-## Stack
+---
 
-- Next.js (app shell)
-- React (UI)
-- PixiJS (battle map)
-- Zustand (state)
-- Local rule engine tick every 3 seconds
-- Local mock narrator interface (LLM optional)
+# 🛠️ Tech Stack
 
-## File Tree
+* Next.js
+* React
+* TailwindCSS
+* TypeScript
+* AI-supported multi-agent system
+* Situation propagation engine
+* Real-time simulation loop
+
+---
+
+
+# File Tree
 
 ```text
 .
@@ -394,7 +395,9 @@ This project explores:
 └── types.ts
 ```
 
-## Run
+---
+
+# Run
 
 ```bash
 npm install
@@ -403,14 +406,11 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Demo Flow (2-3 minutes)
 
-1. Queue different strategic commands from the right panel.
-2. Watch `aiTick` execute every 3 seconds and update map pressure.
-3. Click Paris when threat rises above 72 to reveal city logistics.
-4. Requisition city vehicles for the hidden mobilization mechanic.
-5. Trigger an ending by time depletion or threat escalation.
+---
 
-## Architecture
-<img width="1536" height="1024" alt="39acf6e2c063758a8e05690e54e81b05" src="https://github.com/user-attachments/assets/89e4b6bc-b97f-434c-adc1-0c124ebe65d7" />
+# Demo Flow
+
+Please click the link: https://drive.google.com/drive/folders/1MTh3kj7e2DAII_qbYp-YGcXkiSQWBD_0?usp=drive_link
+
 
