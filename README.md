@@ -66,6 +66,36 @@ In reality, many battles were decided by:
 
 ---
 
+# ✨ Key Idea
+
+> History is not just something to memorize.
+
+---
+
+# 🎯 Design Philosophy
+
+The project is not trying to simulate exact military mathematics.
+
+It is trying to simulate:
+
+* battlefield uncertainty
+* operational friction
+* cascading failures
+* limited information
+* strategic adaptation
+* historical pressure
+
+Victory is not determined by eliminating enemy HP.
+
+Victory emerges when one side can no longer effectively pursue its objectives.
+
+
+> It is a fragile system of decisions, pressures, mistakes, and consequences.
+
+*What If: Marne* turns that system into something players can actively experience.
+
+---
+
 # ⚙️ Core Innovation
 
 ## AI-Supported Situation Propagation Engine
@@ -382,40 +412,11 @@ Open `http://localhost:3000`.
 5. Trigger an ending by time depletion or threat escalation.
 
 ## Architecture Notes
+<img width="1536" height="1024" alt="39acf6e2c063758a8e05690e54e81b05" src="https://github.com/user-attachments/assets/89e4b6bc-b97f-434c-adc1-0c124ebe65d7" />
 
 - Player text is always mapped into bounded actions by `commandClassifier`.
 - `aiTick` is a pure function consuming state and order queue.
 - LLM is not allowed to mutate `GameState`; only text generation is reserved via a mock narrator interface.
 
-
----
-
-# ✨ Key Idea
-
-> History is not just something to memorize.
-
----
-
-# 🎯 Design Philosophy
-
-The project is not trying to simulate exact military mathematics.
-
-It is trying to simulate:
-
-* battlefield uncertainty
-* operational friction
-* cascading failures
-* limited information
-* strategic adaptation
-* historical pressure
-
-Victory is not determined by eliminating enemy HP.
-
-Victory emerges when one side can no longer effectively pursue its objectives.
-
-
-> It is a fragile system of decisions, pressures, mistakes, and consequences.
-
-*What If: Marne* turns that system into something players can actively experience.
 
 
