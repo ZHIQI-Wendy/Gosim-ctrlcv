@@ -325,6 +325,7 @@ Player Intent
 → Battlefield Evolution
 → Historical Consequences
 ```
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/781a7e6c-f2d6-46e3-b04f-340da0ae668a" />
 
 ---
 
@@ -406,11 +407,7 @@ Open `http://localhost:3000`.
 
 ## Demo Flow (2-3 minutes)
 
-1. Queue different strategic commands from the right panel.
-2. Watch `aiTick` execute every 3 seconds and update map pressure.
-3. Click Paris when threat rises above 72 to reveal city logistics.
-4. Requisition city vehicles for the hidden mobilization mechanic.
-5. Trigger an ending by time depletion or threat escalation.
+Please click the link:https://drive.google.com/drive/folders/1MTh3kj7e2DAII_qbYp-YGcXkiSQWBD_0?usp=drive_link
 
 ## Architecture
 <img width="1536" height="1024" alt="39acf6e2c063758a8e05690e54e81b05" src="https://github.com/user-attachments/assets/89e4b6bc-b97f-434c-adc1-0c124ebe65d7" />
