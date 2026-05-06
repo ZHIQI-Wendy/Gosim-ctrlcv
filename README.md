@@ -298,6 +298,11 @@ Replay memory is used to generate future scenario variants while preserving hist
 
 ---
 
+# Architecture Diagram
+<img width="1536" height="1024" alt="39acf6e2c063758a8e05690e54e81b05" src="https://github.com/user-attachments/assets/89e4b6bc-b97f-434c-adc1-0c124ebe65d7" />
+
+---
+
 # 🎓 Learning Through Gameplay
 
 Historical knowledge is embedded directly into gameplay instead of separate tutorials.
@@ -409,6 +414,4 @@ Open `http://localhost:3000`.
 
 Please click the link:https://drive.google.com/drive/folders/1MTh3kj7e2DAII_qbYp-YGcXkiSQWBD_0?usp=drive_link
 
-## Architecture
-<img width="1536" height="1024" alt="39acf6e2c063758a8e05690e54e81b05" src="https://github.com/user-attachments/assets/89e4b6bc-b97f-434c-adc1-0c124ebe65d7" />
 
