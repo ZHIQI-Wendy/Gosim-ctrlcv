@@ -1,55 +1,62 @@
-import { CityId, OutcomeKey, StrategicFocus } from "@/types";
+import { AllowedAction, MapNodeId, OutcomeKey } from "@/types";
 
-export const cityNodes: Array<{ id: CityId; label: string; x: number; y: number }> = [
+export const cityNodes: Array<{ id: MapNodeId; label: string; x: number; y: number }> = [
   { id: "paris", label: "Paris", x: 30, y: 33 },
   { id: "meaux", label: "Meaux", x: 42, y: 38 },
-  { id: "chateauThierry", label: "Chateau-Thierry", x: 48, y: 46 },
-  { id: "marne", label: "Marne", x: 47, y: 43 },
+  { id: "chateau_thierry", label: "Chateau-Thierry", x: 48, y: 46 },
+  { id: "marne_crossings", label: "Marne Crossings", x: 47, y: 43 },
   { id: "reims", label: "Reims", x: 59, y: 31 },
   { id: "verdun", label: "Verdun", x: 72, y: 46 }
 ];
 
 export const strategyOptions: Array<{
-  focus: StrategicFocus;
+  action: AllowedAction;
   title: string;
   detail: string;
   icon: string;
-  accent: string;
+  commandText: string;
 }> = [
   {
-    focus: "DEFEND_PARIS",
+    action: "DEFEND",
     title: "Defend Paris",
     detail: "Strengthen belts around the capital",
-    icon: "🛡",
-    accent: "#4a76d1"
+    icon: "S",
+    commandText: "Defend Paris approaches and hold key crossings."
   },
   {
-    focus: "DELAY_GERMANS",
+    action: "DELAY",
     title: "Delay Germans",
     detail: "Trade space for critical hours",
-    icon: "⏳",
-    accent: "#bc4b3d"
+    icon: "T",
+    commandText: "Delay German advance and buy time near the Marne."
   },
   {
-    focus: "COUNTER_STRIKE",
-    title: "Launch Counterattack",
+    action: "COUNTERATTACK",
+    title: "Counterattack",
     detail: "Hit exposed advance corridors",
-    icon: "⚔",
-    accent: "#c9a449"
+    icon: "A",
+    commandText: "Launch a local counterattack on the exposed German flank."
   },
   {
-    focus: "OPTIMIZE_RAILWAYS",
-    title: "Optimize Supply",
+    action: "OPTIMIZE_RAIL",
+    title: "Optimize Rail",
     detail: "Rebuild rail transfer priority",
-    icon: "🛤",
-    accent: "#4b9b6c"
+    icon: "R",
+    commandText: "Optimize rail throughput around Paris rail hub."
   },
   {
-    focus: "BOOST_RECON",
+    action: "RECON",
     title: "Strengthen Recon",
     detail: "Increase operational visibility",
-    icon: "🔭",
-    accent: "#7d63b7"
+    icon: "I",
+    commandText: "Recon and observe German flank movement."
+  },
+  {
+    action: "PROPAGANDA",
+    title: "Public Messaging",
+    detail: "Stabilize morale and confidence",
+    icon: "P",
+    commandText: "Issue messaging to stabilize morale in Paris."
   }
 ];
 
@@ -60,5 +67,6 @@ export const outcomeLabels: Record<OutcomeKey, string> = {
   costlyStalemate: "Costly Stalemate",
   parisPoliticalCrisis: "Paris Political Crisis",
   germanBreakthrough: "German Breakthrough",
-  ahistoricalCollapse: "Ahistorical Collapse"
+  ahistoricalCollapse: "Ahistorical Collapse",
+  collapse: "Operational Collapse"
 };

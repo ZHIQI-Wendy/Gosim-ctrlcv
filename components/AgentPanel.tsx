@@ -1,3 +1,4 @@
+// components/AgentPanel.tsx
 import { AgentLine } from "@/types";
 
 function pickLine(lines: AgentLine[], speaker: AgentLine["speaker"]): string {

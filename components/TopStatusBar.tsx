@@ -1,34 +1,15 @@
-import {GameStateData} from "@/types";
+import {formatClockByMinutes} from "@/lib/utils";
 import {SpeedLevel} from "@/lib/gameState";
+import {GameStateData} from "@/types";
+import Image from "next/image";
+import GitHubIcon from "@/assets/img/github-icon.svg";
 
-function threatLevel(value: number): string {
-    if (value >= 80) return "High";
-    if (value >= 55) return "Elevated";
-    return "Managed";
-}
-
-function barColor(kind: "threat" | "morale" | "supply"): string {
-    if (kind === "threat") return "#b1493f";
-    if (kind === "morale") return "#4d9666";
-    return "#c6a44a";
-}
-
-function formatTimeLeft(hoursFloat: number): string {
-    const clamped = Math.max(0, hoursFloat);
-    const totalMinutes = Math.max(0, Math.round(clamped * 60));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    return `${String(hours).padStart(2, "0")}h${String(minutes).padStart(2, "0")}m`;
-}
-
-function formatCampaignClock(timeLeftHours: number): string {
-    const elapsedMinutes = Math.max(0, Math.round((48 - timeLeftHours) * 60));
-    const at = new Date(Date.UTC(1914, 8, 5, 18, 0, 0) + elapsedMinutes * 60 * 1000);
-    const hh = String(at.getUTCHours()).padStart(2, "0");
-    const mm = String(at.getUTCMinutes()).padStart(2, "0");
-    const day = at.getUTCDate();
-    const year = at.getUTCFullYear();
-    return `${hh}:${mm} ${day} Sept. ${year}`;
+function barColor(kind: "cohesion" | "stability" | "pressure" | "rail" | "threat"): string {
+    if (kind === "cohesion") return "#4d9666";
+    if (kind === "stability") return "#5d8ab9";
+    if (kind === "pressure") return "#a95d52";
+    if (kind === "rail") return "#c6a44a";
+    return "#b1493f";
 }
 
 function formatSpeed(speedLevel: SpeedLevel): string {
@@ -37,79 +18,97 @@ function formatSpeed(speedLevel: SpeedLevel): string {
     return "x1.0";
 }
 
-interface PanelToggle {
-    key: string;
-    label: string;
-    open: boolean;
+function threatLevel(value: number): string {
+    if (value >= 85) return "Critical";
+    if (value >= 70) return "High";
+    if (value >= 50) return "Elevated";
+    return "Managed";
 }
 
-export function TopStatusBar({
+function MetricBar({label, value, color}: { label: string; value: number; color: string }) {
+    const width = Math.max(0, Math.min(100, value));
+    return (
+        <div className="hud-metric-shell">
+            <div className="hud-metric-fill" style={{width: `${width}%`, background: color}}/>
+            <span className="hud-metric-label">
+        {label}: {Math.round(value)}%
+      </span>
+        </div>
+    );
+}
+
+
+export function RightMetrics({
                                  game,
                                  isPaused,
                                  speedLevel,
-                                 panelToggles,
                                  onTogglePause,
                                  onDecreaseSpeed,
-                                 onIncreaseSpeed,
-                                 onTogglePanel
+                                 onIncreaseSpeed
                              }: {
     game: GameStateData;
     isPaused: boolean;
     speedLevel: SpeedLevel;
-    panelToggles: PanelToggle[];
     onTogglePause: () => void;
     onDecreaseSpeed: () => void;
     onIncreaseSpeed: () => void;
-    onTogglePanel: (key: string) => void;
 }) {
     return (
-        <section className="floating-panel top-status-bar">
-            <div className="title-block">
-                <h1>Marne: AI Commander</h1>
-                <p>September 1914 · Day 6</p>
+        <aside className="hud-right-meters" aria-label="Operational metrics">
+            <div className={"title-row"}>
+                <h1 style={{margin: 0}}>What If: Marne</h1>
+                {/*<span className="github-link">*/}
+                {/*    <a href="https://github.com/ZHIQI-Wendy/Gosim-ctrlcv" target="_blank" rel="noopener noreferrer">*/}
+                {/*        <Image src={GitHubIcon} alt="GitHub" width={20} height={20}/>*/}
+                {/*    </a>*/}
+                {/*</span>*/}
             </div>
+            <MetricBar label="Command Cohesion" value={game.commandCohesion} color={barColor("cohesion")}/>
+            <MetricBar label="City Stability" value={game.cityStability} color={barColor("stability")}/>
+            <MetricBar label="Political Pressure" value={game.politicalPressure} color={barColor("pressure")}/>
+            <MetricBar label="Rail Congestion" value={game.railwayCongestion} color={barColor("rail")}/>
 
-            <div className="status-meters">
-                <div className="status-item">
-                    <span>⌛ Time Left</span>
-                    <strong>{formatTimeLeft(game.timeLeft)}</strong>
+            <div className="hud-control-row">
+                <div className="hud-time-readout">
+                    <small>Campaign Time</small>
+                    <strong>{formatClockByMinutes(game.currentTimeMinutes)}</strong>
                 </div>
-                <div className="status-item status-bar-item">
-                    <span>Paris Threat: {threatLevel(game.parisThreat)}</span>
-                    <div className="meter-shell">
-                        <div className="meter-fill"
-                             style={{width: `${game.parisThreat}%`, background: barColor("threat")}}/>
-                    </div>
-                </div>
-                <div className="status-item status-bar-item">
-                    <span>Morale: {Math.round(game.morale)}%</span>
-                    <div className="meter-shell">
-                        <div className="meter-fill" style={{width: `${game.morale}%`, background: barColor("morale")}}/>
-                    </div>
-                </div>
-                <div className="status-item status-bar-item">
-                    <span>Supply: {Math.round(game.supply)}%</span>
-                    <div className="meter-shell">
-                        <div className="meter-fill" style={{width: `${game.supply}%`, background: barColor("supply")}}/>
-                    </div>
-                </div>
-            </div>
-
-            <div className="top-actions">
-                <div className="sim-actions">
-                    <button onClick={onTogglePause}>{isPaused ? "Resume" : "Pause"}</button>
+                <div className="hud-control-buttons">
+                    <button
+                        onClick={onTogglePause}
+                        aria-label={isPaused ? "Resume simulation" : "Pause simulation"}
+                        title={isPaused ? "Resume simulation" : "Pause simulation"}
+                    >
+                        {isPaused ? "▶" : "❚❚"}
+                    </button>
                     <button onClick={onDecreaseSpeed} aria-label="Decrease simulation speed">
                         -
                     </button>
-                    <div className="time-speed-bar" role="status" aria-live="polite">
-                        <span>{formatCampaignClock(game.timeLeft)}</span>
-                        <strong>{formatSpeed(speedLevel)}</strong>
-                    </div>
+                    <span className="hud-speed-pill">{formatSpeed(speedLevel)}</span>
                     <button onClick={onIncreaseSpeed} aria-label="Increase simulation speed">
                         +
                     </button>
                 </div>
             </div>
-        </section>
+        </aside>
+    );
+}
+
+export function BottomThreatBar({game}: { game: GameStateData }) {
+    return (
+        <div className="bottom-threat-strip" aria-label="Paris threat">
+            <div className="bottom-threat-shell">
+                <div
+                    className="bottom-threat-fill"
+                    style={{
+                        width: `${Math.max(0, Math.min(100, game.parisThreat))}%`,
+                        background: barColor("threat")
+                    }}
+                />
+                <span className="bottom-threat-label">
+          Paris Threat {Math.round(game.parisThreat)}% · {threatLevel(game.parisThreat)}
+        </span>
+            </div>
+        </div>
     );
 }

@@ -1,80 +1,87 @@
-import {CityId, GameStateData} from "@/types";
+// components/CityPopup.tsx
+import { GameStateData, MapNodeId } from "@/types";
 
-export const cityTitles: Record<CityId, string> = {
-    paris: "Paris (Capital)",
-    meaux: "Meaux",
-    chateauThierry: "Château-Thierry",
-    marne: "Marne River Sector",
-    verdun: "Verdun",
-    reims: "Reims"
+export const cityTitles: Record<MapNodeId, string> = {
+  paris: "Paris",
+  paris_rail_hub: "Paris Rail Hub",
+  ourcq_line: "Ourcq Line",
+  meaux: "Meaux",
+  marne_crossings: "Marne Crossings",
+  coulommiers: "Coulommiers",
+  montmirail: "Montmirail",
+  senlis: "Senlis",
+  aisne_road: "Aisne Road",
+  soissons: "Soissons",
+  chateau_thierry: "Chateau-Thierry",
+  reims: "Reims",
+  epernay: "Epernay",
+  chalons: "Chalons-sur-Marne",
+  verdun: "Verdun",
+  bar_le_duc: "Bar-le-Duc",
+  sezanne: "Sezanne",
+  fere_champenoise: "Fere-Champenoise"
 };
 
-const cityControllers: Record<CityId, string> = {
-    paris: "France",
-    meaux: "Contested",
-    chateauThierry: "Contested",
-    marne: "Contested",
-    verdun: "France",
-    reims: "France"
-};
+function localThreat(game: GameStateData, city: MapNodeId): number {
+  const nodeUnits = game.units.filter((unit) => unit.nodeId === city);
+  const german = nodeUnits
+    .filter((unit) => unit.side === "german")
+    .reduce((sum, unit) => sum + unit.strength, 0);
+  const allied = nodeUnits
+    .filter((unit) => unit.side === "allied")
+    .reduce((sum, unit) => sum + unit.strength, 0);
 
-const cityValue: Record<CityId, number> = {
-    paris: 5,
-    meaux: 4,
-    chateauThierry: 4,
-    marne: 4,
-    verdun: 4,
-    reims: 3
-};
+  const balance = german + allied > 0 ? (german / (german + allied)) * 100 : game.parisThreat;
+  return Math.round((balance * 0.6 + game.parisThreat * 0.4));
+}
 
-export function CityPopup({
-                              city,
-                              game,
-                              onDispatch,
-                              onMobilize
-                          }: {
-    city: CityId | null;
-    game: GameStateData;
-    onDispatch: () => void;
-    onMobilize: () => void;
-}) {
-    if (!city) return null;
+export function CityPopup({ city, game }: { city: MapNodeId | null; game: GameStateData }) {
+  if (!city) return null;
 
-    const threat = city === "paris" ? game.parisThreat : Math.round((game.germanAdvance + game.parisThreat) / 2);
-    const defenseDots = Math.max(1, Math.min(5, Math.round((game.commandCohesion + game.supply) / 40)));
+  const node = game.nodes.find((item) => item.id === city);
+  if (!node) return null;
 
-    return (
-        <section className="city-popup">
-            <p style={{margin: "auto"}}>
-                City status: <strong>{threat > 75 ? "High Threat" : threat > 50 ? "Elevated" : "Guarded"}</strong>
-            </p>
-            <div className="popup-meter">
-                <span>Threat</span>
-                <div className="meter-shell">
-                    <div className="meter-fill" style={{width: `${threat}%`, background: "#b1493f"}}/>
-                </div>
-            </div>
-            <p>
-                Defense rating: {Array.from({length: 5}).map((_, index) => (
-                <span key={index} className={`dot ${index < defenseDots ? "dot-on" : ""}`}>●
-          </span>
-            ))}
-            </p>
-            <p>Controller: {cityControllers[city]}</p>
-            <p>
-                Strategic value: {"★".repeat(cityValue[city])}
-                {"☆".repeat(5 - cityValue[city])}
-            </p>
-            <p className="warning">Loss of this node sharply raises campaign failure risk.</p>
-            <div className="popup-actions">
-                <button>View Details</button>
-                <button onClick={onDispatch}>Dispatch Forces</button>
-            </div>
-            {city === "paris" && game.cityVehiclesDiscovered && !game.cityVehiclesUsed && (
-                <button className="mobilize-inline" onClick={onMobilize}>
-                    Requisition City Vehicles
-                </button>
-            )}
-        </section>
-    );
+  const units = game.units.filter((unit) => unit.nodeId === city);
+  const adjacent = game.edges
+    .filter((edge) => edge.from === city || edge.to === city)
+    .map((edge) => (edge.from === city ? edge.to : edge.from));
+
+  const threat = localThreat(game, city);
+  const latestReport = game.reports[0]?.reportText ?? "No recent report.";
+
+  return (
+    <section className="city-popup">
+      <p style={{ margin: "auto" }}>
+        Local status: <strong>{threat > 75 ? "High Threat" : threat > 50 ? "Elevated" : "Guarded"}</strong>
+      </p>
+
+      <div className="popup-meter">
+        <span>Local Threat</span>
+        <div className="meter-shell">
+          <div className="meter-fill" style={{ width: `${threat}%`, background: "#b1493f" }} />
+        </div>
+      </div>
+
+      <p>
+        Control: <strong>{node.control}</strong>
+      </p>
+      <p>Terrain: {node.type}</p>
+      <p>Defense value: {node.defenseValue}</p>
+      <p>Transport value: {node.transportValue}</p>
+      <p>Supply value: {node.supplyValue}</p>
+
+      <p>
+        Current units: {units.length === 0 ? "None" : units.map((unit) => `${unit.name} (${Math.round(unit.strength)})`).join(", ")}
+      </p>
+
+      <p>Adjacent routes: {adjacent.length ? adjacent.join(", ") : "No adjacent routes"}</p>
+      <p>Common info: {node.commonInfo ?? "N/A"}</p>
+      <p>Special info: {node.specialInfo ?? "N/A"}</p>
+      <p className="warning">Latest report: {latestReport}</p>
+
+      {city === "paris" && game.cityVehiclesDiscovered && !game.cityVehiclesUsed && (
+        <p className="warning">City vehicles discovered. Use a text command to requisition transport.</p>
+      )}
+    </section>
+  );
 }

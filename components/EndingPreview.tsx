@@ -1,16 +1,25 @@
+// components/EndingPreview.tsx
 import { outcomeLabels } from "@/data/mockGameState";
 import { GameStateData, OutcomeKey } from "@/types";
 
+const scoreKeys: OutcomeKey[] = ["miracleMarne", "logisticsMaster", "tacticalGamble", "ahistoricalCollapse"];
+
 function topThree(game: GameStateData): OutcomeKey[] {
-  return (Object.keys(game.outcomeScores) as OutcomeKey[])
-    .sort((a, b) => game.outcomeScores[b] - game.outcomeScores[a])
+  return [...scoreKeys]
+    .sort(
+      (a, b) =>
+        game.outcomeScores[b as keyof typeof game.outcomeScores] -
+        game.outcomeScores[a as keyof typeof game.outcomeScores]
+    )
     .slice(0, 3);
 }
 
 export function EndingPreview({ game }: { game: GameStateData }) {
   const top = topThree(game);
-  const topLabel = outcomeLabels[top[0]];
-  const confidence = game.outcomeScores[top[0]] > 65 ? "High" : game.outcomeScores[top[0]] > 40 ? "Medium" : "Low";
+  const topKey = top[0] ?? "tacticalGamble";
+  const topScore = game.outcomeScores[topKey as keyof typeof game.outcomeScores] ?? 0;
+  const topLabel = outcomeLabels[topKey];
+  const confidence = topScore > 65 ? "High" : topScore > 40 ? "Medium" : "Low";
 
   return (
     <section className="ending-preview-float">

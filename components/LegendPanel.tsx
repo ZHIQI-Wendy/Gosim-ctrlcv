@@ -1,3 +1,4 @@
+// components/LegendPanel.tsx
 const legendRows = [
   ["Blue dashed arrow", "French advance / counterattack"],
   ["Red dashed arrow", "German advance"],

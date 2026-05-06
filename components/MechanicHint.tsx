@@ -1,3 +1,4 @@
+// components/MechanicHint.tsx
 export function MechanicHint({
   discovered,
   onOpen

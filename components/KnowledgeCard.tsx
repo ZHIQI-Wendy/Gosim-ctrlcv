@@ -1,3 +1,4 @@
+// components/KnowledgeCard.tsx
 "use client";
 
 import { KnowledgeCard as KnowledgeItem } from "@/types";
@@ -5,9 +6,10 @@ import { useMemo, useState } from "react";
 
 const fallback: KnowledgeItem = {
   id: "fallback-marne-taxi",
-  key: "marne-taxi",
   title: "Taxis of the Marne",
-  body: "In September 1914, Paris taxis transported troops toward the front. The direct military effect was limited, but the event symbolized social mobilization and state resolve."
+  content:
+    "In September 1914, Paris taxis transported troops toward the front. The direct military effect was limited, but the event symbolized social mobilization and state resolve.",
+  discoveredAtMinutes: 0
 };
 
 const tags = ["Social Mobilization", "Urban Resources", "War Innovation"];
@@ -33,7 +35,7 @@ export function KnowledgeCard({ cards }: { cards: KnowledgeItem[] }) {
         </div>
         <div>
           <strong>{active.title}</strong>
-          <p>{active.body}</p>
+          <p>{active.content}</p>
           <div className="tag-row">
             {tags.map((tag) => (
               <span key={tag}>{tag}</span>

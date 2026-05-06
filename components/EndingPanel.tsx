@@ -1,3 +1,4 @@
+// components/EndingPanel.tsx
 import {OutcomeKey} from "@/types";
 import {endingNarrative} from "@/lib/outcome";
 

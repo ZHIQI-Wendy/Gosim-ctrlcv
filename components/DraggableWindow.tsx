@@ -1,3 +1,4 @@
+// components/DraggableWindow.tsx
 "use client";
 
 import { ReactNode, useEffect, useRef, useState } from "react";
@@ -46,6 +47,19 @@ export function DraggableWindow({
     const height = rootRef.current.offsetHeight;
     setPosition((prev) => clampPosition(prev.x, prev.y, width, height));
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [visible, onClose]);
 
   useEffect(() => {
     const onResize = () => {
@@ -104,7 +118,11 @@ export function DraggableWindow({
         }}
       >
         <span>{label}</span>
-        <button className="window-close" onClick={onClose} aria-label={`Close ${label}`}>
+        <button
+          className="window-close"
+          onClick={onClose}
+          aria-label={`Close ${label}`}
+        >
           ×
         </button>
       </header>

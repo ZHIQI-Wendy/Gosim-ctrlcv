@@ -2,202 +2,763 @@
 
 import { create } from "zustand";
 import {
-  AgentLine,
-  BattleReport,
-  CityId,
-  GameStateData,
-  KnowledgeCard,
-  OrderItem,
-  StrategicFocus
+  COMBAT_STEP_GAME_MINUTES,
+  DECISION_STEP_GAME_MINUTES,
+  REPORT_MIN_INTERVAL_GAME_MINUTES,
+  SIM_STEP_GAME_MINUTES,
+  TOTAL_GAME_HOURS,
+  createInitialGameState
+} from "@/data/initialState";
+import { getEnvironmentalDecision, getFrenchCommandDecision, getGermanCommanderDecision, getGovernmentDecision, getReportDecision } from "@/lib/ai/decisionDispatch";
+import { buildEnvironmentalContext } from "@/lib/ai/context/buildEnvironmentalContext";
+import { buildFrenchCommandContext } from "@/lib/ai/context/buildFrenchCommandContext";
+import { buildGermanCommanderContext } from "@/lib/ai/context/buildGermanCommanderContext";
+import { buildGovernmentDecisionContext } from "@/lib/ai/context/buildGovernmentDecisionContext";
+import { buildReportContext } from "@/lib/ai/context/buildReportContext";
+import { resolveCombatStep } from "@/lib/combat";
+import { updateSustainedThreatTimers, resolveEnding, shouldEndGame } from "@/lib/endings";
+import { cloneAndClampState } from "@/lib/movement";
+import { applyGermanIntent, createOrderFromParserOutput, processOrders, advanceMovingUnits, PublicEvent } from "@/lib/orders";
+import { calculateParisThreat } from "@/lib/parisThreat";
+import { gameMinutesFromRealSeconds, SpeedLevel } from "@/lib/timeLoop";
+import { clamp, makeId } from "@/lib/utils";
+import { validateEnvironmentalOutput, validateFrenchParserOutput, validateGermanOutput, validateGovernmentDecision, validateReportOutput } from "@/lib/validators";
+import {
+  EndingType,
+  GameState,
+  MapNodeId,
+  Report,
+  ReportTone
 } from "@/types";
-import { classifyCommand } from "@/lib/commandClassifier";
-import { aiTick } from "@/lib/aiTick";
-import { formatCampaignTime } from "@/lib/time";
 
-export type SpeedLevel = "SLOW" | "NORMAL" | "FAST";
-
-const REAL_SECONDS_PER_GAME_HOUR = 6;
-const COMMAND_BATCH_EVERY_GAME_HOURS = 0.5;
-const COMMANDS_PER_BATCH = 1;
-const SPEED_LEVELS: SpeedLevel[] = ["SLOW", "NORMAL", "FAST"];
-
-const SPEED_MULTIPLIER: Record<SpeedLevel, number> = {
-  SLOW: 0.5,
-  NORMAL: 1,
-  FAST: 2
+export type PlayerCommandIntent = {
+  rawText: string;
+  selectedNodeId?: MapNodeId;
+  selectedUnitId?: string;
 };
 
-const initialGameState: GameStateData = {
-  timeLeft: 48,
-  currentTime: Date.UTC(1914, 8, 5, 18, 0, 0),
-  parisThreat: 72,
-  germanAdvance: 68,
-  flankGap: 15,
-  morale: 55,
-  fatigue: 60,
-  supply: 65,
-  railwayCongestion: 70,
-  redeployEfficiency: 100,
-  cityStability: 65,
-  cityVehiclesDiscovered: false,
-  cityVehiclesUsed: false,
-  politicalPressure: 60,
-  commandCohesion: 70,
-  counterattackMomentum: 0,
-  counterattackSuccess: false,
-  pendingRailOptimizationTicks: 0,
-  outcomeScores: {
-    miracleMarne: 0,
-    logisticsMaster: 0,
-    tacticalGamble: 0,
-    costlyStalemate: 0,
-    parisPoliticalCrisis: 0,
-    germanBreakthrough: 0,
-    ahistoricalCollapse: 0
-  },
-  ending: null
+type DecisionBundle = {
+  parserOutputs: ReturnType<typeof validateFrenchParserOutput>[];
+  germanOutput: ReturnType<typeof validateGermanOutput>;
+  governmentOutput?: ReturnType<typeof validateGovernmentDecision>;
+  report?: ReturnType<typeof validateReportOutput>;
+  eventLabels: string[];
+  fallbackMessages: string[];
 };
 
-function cloneInitial(): GameStateData {
-  return {
-    ...initialGameState,
-    outcomeScores: { ...initialGameState.outcomeScores }
-  };
-}
+type EnvironmentalBundle = {
+  nodeId: MapNodeId;
+  output?: ReturnType<typeof validateEnvironmentalOutput>;
+  report?: ReturnType<typeof validateReportOutput>;
+  fallbackMessages: string[];
+};
 
-function makeReport(tick: number, title: string, body: string, timeLeftHours: number): BattleReport {
-  return {
-    id: `${title.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    tick,
-    title,
-    body,
-    dateLabel: formatCampaignTime(timeLeftHours)
-  };
-}
+type ReportBundle = {
+  report?: ReturnType<typeof validateReportOutput>;
+  fallbackMessages: string[];
+  eventType?: string;
+};
 
-function clampSpeedLevel(level: SpeedLevel, direction: -1 | 1): SpeedLevel {
-  const nextIndex = Math.min(
-    SPEED_LEVELS.length - 1,
-    Math.max(0, SPEED_LEVELS.indexOf(level) + direction)
-  );
-  return SPEED_LEVELS[nextIndex];
-}
+export type EngineLoopState = {
+  simAccumulatorMinutes: number;
+  decisionAccumulatorMinutes: number;
+  combatAccumulatorMinutes: number;
+  reportAccumulatorMinutes: number;
+};
 
 interface GameStore {
-  game: GameStateData;
-  orderQueue: OrderItem[];
-  reports: BattleReport[];
-  cards: KnowledgeCard[];
-  agentLines: AgentLine[];
-  selectedFocus: StrategicFocus;
-  selectedCity: CityId | null;
+  game: GameState;
+  ending: EndingType | null;
+  selectedNodeId: MapNodeId | null;
+  selectedUnitId: string | null;
+  pendingCommands: PlayerCommandIntent[];
+  recentEvents: string[];
+  loopState: EngineLoopState;
   isPaused: boolean;
   speedLevel: SpeedLevel;
-  gameHoursUntilNextBatch: number;
-  tick: number;
+  isTickRunning: boolean;
+  reportTone: ReportTone;
+  aiStatusText: string | null;
+  isDecisionPending: boolean;
+  sessionId: number;
+
   enqueueCommand: (text: string) => void;
-  runTick: (realSecondsElapsed: number) => void;
+  runTick: (realSecondsElapsed: number) => Promise<void>;
   togglePause: () => void;
   decreaseSpeed: () => void;
   increaseSpeed: () => void;
-  setFocus: (focus: StrategicFocus) => void;
-  selectCity: (city: CityId) => void;
-  closeCityPopup: () => void;
+  setReportTone: (tone: ReportTone) => void;
+  selectNode: (nodeId: MapNodeId) => void;
+  closeNode: () => void;
+  selectUnit: (unitId: string | null) => void;
   mobilizeCityVehicles: () => void;
   dispatchCityForces: () => void;
   reset: () => void;
 }
 
-function getGameHoursFromRealSeconds(realSecondsElapsed: number, speedLevel: SpeedLevel): number {
-  const gameHoursPerRealSecond = (1 / REAL_SECONDS_PER_GAME_HOUR) * SPEED_MULTIPLIER[speedLevel];
-  return realSecondsElapsed * gameHoursPerRealSecond;
+const SPEED_LEVELS: SpeedLevel[] = ["SLOW", "NORMAL", "FAST"];
+
+function nextSpeed(current: SpeedLevel, direction: -1 | 1): SpeedLevel {
+  const index = SPEED_LEVELS.indexOf(current);
+  return SPEED_LEVELS[Math.max(0, Math.min(SPEED_LEVELS.length - 1, index + direction))];
+}
+
+export function createLoopState(): EngineLoopState {
+  return {
+    simAccumulatorMinutes: 0,
+    decisionAccumulatorMinutes: 0,
+    combatAccumulatorMinutes: 0,
+    reportAccumulatorMinutes: 0
+  };
+}
+
+function pushReport(state: GameState, report: Omit<Report, "id" | "createdAtMinutes">): void {
+  state.reports.unshift({
+    id: makeId("report"),
+    createdAtMinutes: state.currentTimeMinutes,
+    ...report
+  });
+  state.reports = state.reports.slice(0, 80);
+
+  if (report.knowledgeHint) {
+    state.knowledgeCards.unshift({
+      id: makeId("card"),
+      title: report.headline,
+      content: report.knowledgeHint,
+      discoveredAtMinutes: state.currentTimeMinutes
+    });
+    state.knowledgeCards = state.knowledgeCards.slice(0, 16);
+  }
+}
+
+function appendFallbackReport(state: GameState, details: string): void {
+  pushReport(state, {
+    headline: "AI fallback used",
+    reportText: details,
+    advisorLine: "Simulation continued using validated mock decision path.",
+    eventType: "ai_fallback"
+  });
+}
+
+function updateLocalContact(state: GameState): void {
+  for (const node of state.nodes) {
+    const alliedFront = state.units.some(
+      (unit) => unit.side === "allied" && unit.role === "front" && unit.nodeId === node.id && unit.strength > 0
+    );
+    const germanFront = state.units.some(
+      (unit) => unit.side === "german" && unit.role === "front" && unit.nodeId === node.id && unit.strength > 0
+    );
+
+    if (alliedFront && germanFront) {
+      node.control = "contested";
+    }
+  }
+}
+
+function applyNoOpDrift(state: GameState): void {
+  state.units.forEach((unit) => {
+    if (unit.role === "front") {
+      unit.fatigue = clamp(unit.fatigue + 1.5);
+      unit.supply = clamp(unit.supply - 1);
+    } else if (unit.role === "moving") {
+      unit.fatigue = clamp(unit.fatigue + 1);
+      unit.supply = clamp(unit.supply - 2);
+    } else {
+      unit.fatigue = clamp(unit.fatigue + 0.5);
+      unit.supply = clamp(unit.supply - 0.4);
+    }
+
+    if (unit.role !== "moving") {
+      unit.readiness = clamp(unit.readiness + (unit.stance === "hold" ? 0.5 : 0.2));
+    }
+  });
+
+  state.railwayCongestion = clamp(state.railwayCongestion + 0.5);
+
+  if (state.germanOperationalMomentum > 65 && state.germanCommandCohesion < 70) {
+    state.flankGap = clamp(state.flankGap + 1.5);
+  }
+
+  if (state.parisThreat > 75) {
+    state.cityStability = clamp(state.cityStability - 1.2);
+    state.politicalPressure = clamp(state.politicalPressure + 1.5);
+  }
+
+  state.shortTermRedeployDelayMinutes = Math.max(0, state.shortTermRedeployDelayMinutes - SIM_STEP_GAME_MINUTES);
+}
+
+function maybeDiscoverParisTransport(state: GameState, selectedNodeId?: MapNodeId): boolean {
+  if (selectedNodeId !== "paris") return false;
+  if (state.parisThreat <= 70 || state.cityVehiclesDiscovered) return false;
+
+  state.cityVehiclesDiscovered = true;
+  pushReport(state, {
+    headline: "Urban Transport Observation",
+    reportText:
+      "Paris transport is still operating, but mostly for civilian commuting. Some vehicles are concentrated around stations, squares, and police-controlled roads.",
+    advisorLine: "This option requires explicit command language to requisition.",
+    eventType: "discovery"
+  });
+  return true;
+}
+
+function maybeNeedsGovernmentDecision(state: GameState, recentEvents: string[]): boolean {
+  if (state.parisThreat > 75) return true;
+  if (state.politicalPressure > 75) return true;
+  if (state.cityStability < 45) return true;
+  if (state.governmentCollapseRisk > 65) return true;
+  if (state.invalidCommandsInLast6Hours >= 2) return true;
+  return recentEvents.some((event) => event.toLowerCase().includes("paris crisis"));
+}
+
+function mergeRecentEvents(existing: string[], additions: string[]): string[] {
+  return [...existing, ...additions].slice(-24);
+}
+
+function runSimStep(state: GameState): PublicEvent[] {
+  const moveEvents = advanceMovingUnits(state, SIM_STEP_GAME_MINUTES);
+  applyNoOpDrift(state);
+  updateLocalContact(state);
+
+  state.currentTimeMinutes += SIM_STEP_GAME_MINUTES;
+  state.parisThreat = calculateParisThreat(state);
+  updateSustainedThreatTimers(state, SIM_STEP_GAME_MINUTES);
+
+  return moveEvents;
+}
+
+function runCombatStep(state: GameState): {
+  events: string[];
+  publicEvents: PublicEvent[];
+  majorCombats: ReturnType<typeof resolveCombatStep>;
+} {
+  const events: string[] = [];
+  const publicEvents: PublicEvent[] = [];
+  const combats = resolveCombatStep(state);
+
+  for (const combat of combats) {
+    events.push(
+      `Combat at ${combat.nodeId}: Allied loss ${combat.alliedLoss.toFixed(1)}, German loss ${combat.germanLoss.toFixed(1)}.`
+    );
+
+    publicEvents.push({
+      type: "combat",
+      nodeId: combat.nodeId,
+      unitIds: combat.involvedUnitIds,
+      resultSummary: `Heavy exchange at ${combat.nodeId}; losses A:${combat.alliedLoss.toFixed(1)} G:${combat.germanLoss.toFixed(1)}.`
+    });
+  }
+
+  state.parisThreat = calculateParisThreat(state);
+  return { events, publicEvents, majorCombats: combats.filter((combat) => combat.major) };
+}
+
+async function resolveDecisionBundle(
+  snapshotState: GameState,
+  commands: PlayerCommandIntent[],
+  recentEvents: string[],
+  tone: ReportTone
+): Promise<DecisionBundle> {
+  const snapshot = cloneAndClampState(snapshotState);
+  const eventLabels: string[] = [];
+  const publicEvents: PublicEvent[] = [];
+  const fallbackMessages: string[] = [];
+  const parserOutputs: ReturnType<typeof validateFrenchParserOutput>[] = [];
+
+  for (const command of commands) {
+    const parserInput = buildFrenchCommandContext(
+      snapshot,
+      command.rawText,
+      command.selectedNodeId,
+      command.selectedUnitId,
+      recentEvents
+    );
+    const parserDecision = await getFrenchCommandDecision(parserInput);
+    if (parserDecision.usedFallback) {
+      fallbackMessages.push(parserDecision.error ?? "French command parser AI failed");
+      eventLabels.push("AI fallback used");
+    }
+
+    const safeOutput = validateFrenchParserOutput(snapshot, parserDecision.output);
+    parserOutputs.push(safeOutput);
+    snapshot.orderQueue.push(createOrderFromParserOutput(safeOutput, snapshot.currentTimeMinutes));
+    eventLabels.push(`Player order parsed: ${safeOutput.action}`);
+  }
+
+  const germanInput = buildGermanCommanderContext(snapshot, recentEvents);
+  const germanDecision = await getGermanCommanderDecision(germanInput);
+  if (germanDecision.usedFallback) {
+    fallbackMessages.push(germanDecision.error ?? "German commander AI failed");
+    eventLabels.push("AI fallback used");
+  }
+
+  const safeGerman = validateGermanOutput(snapshot, germanDecision.output);
+  const germanResult = applyGermanIntent(snapshot, safeGerman);
+  eventLabels.push(germanResult.event);
+  publicEvents.push(germanResult.publicEvent);
+
+  const orderOutcome = processOrders(snapshot);
+  eventLabels.push(...orderOutcome.events);
+  publicEvents.push(...orderOutcome.publicEvents);
+
+  let governmentOutput: ReturnType<typeof validateGovernmentDecision> | undefined;
+  if (maybeNeedsGovernmentDecision(snapshot, recentEvents)) {
+    const govInput = buildGovernmentDecisionContext(snapshot, recentEvents);
+    const govDecision = await getGovernmentDecision(govInput);
+    if (govDecision.usedFallback) {
+      fallbackMessages.push(govDecision.error ?? "Government decision AI failed");
+      eventLabels.push("AI fallback used");
+    }
+
+    governmentOutput = validateGovernmentDecision(govDecision.output);
+    if (governmentOutput.trigger) {
+      snapshot.cityStability = clamp(snapshot.cityStability + governmentOutput.stateDelta.cityStability);
+      snapshot.politicalPressure = clamp(snapshot.politicalPressure + governmentOutput.stateDelta.politicalPressure);
+      snapshot.commandCohesion = clamp(snapshot.commandCohesion + governmentOutput.stateDelta.commandCohesion);
+      snapshot.governmentCollapseRisk = clamp(
+        snapshot.governmentCollapseRisk + governmentOutput.stateDelta.governmentCollapseRisk
+      );
+      snapshot.alliedOperationalMomentum = clamp(
+        snapshot.alliedOperationalMomentum + governmentOutput.stateDelta.alliedOperationalMomentum
+      );
+
+      eventLabels.push(`Government event: ${governmentOutput.action}`);
+      publicEvents.push({
+        type: "government_decision",
+        resultSummary: governmentOutput.publicMessage
+      });
+    }
+  }
+
+  let report: ReturnType<typeof validateReportOutput> | undefined;
+  if (publicEvents.length > 0 || fallbackMessages.length > 0) {
+    const reportDecision = await getReportDecision(buildReportContext(snapshot, publicEvents, tone));
+    if (reportDecision.usedFallback) {
+      fallbackMessages.push(reportDecision.error ?? "Report generator AI failed");
+    }
+    report = validateReportOutput(reportDecision.output);
+  }
+
+  return {
+    parserOutputs,
+    germanOutput: safeGerman,
+    governmentOutput,
+    report,
+    eventLabels,
+    fallbackMessages
+  };
+}
+
+async function resolveEnvironmentalBundle(
+  snapshotState: GameState,
+  combat: ReturnType<typeof resolveCombatStep>[number],
+  tone: ReportTone
+): Promise<EnvironmentalBundle> {
+  const snapshot = cloneAndClampState(snapshotState);
+  const fallbackMessages: string[] = [];
+
+  const envDecision = await getEnvironmentalDecision(buildEnvironmentalContext(snapshot, combat));
+  if (envDecision.usedFallback) {
+    fallbackMessages.push(envDecision.error ?? "Environmental adjudicator AI failed");
+  }
+
+  const output = validateEnvironmentalOutput(envDecision.output);
+  let report: ReturnType<typeof validateReportOutput> | undefined;
+
+  if (output.modifierType !== "no_modifier") {
+    const reportDecision = await getReportDecision(
+      buildReportContext(
+        snapshot,
+        [
+          {
+            type: "environmental_modifier",
+            nodeId: combat.nodeId,
+            resultSummary: output.rationale
+          }
+        ],
+        tone
+      )
+    );
+    if (reportDecision.usedFallback) {
+      fallbackMessages.push(reportDecision.error ?? "Report generator AI failed");
+    }
+    report = validateReportOutput(reportDecision.output);
+  }
+
+  return {
+    nodeId: combat.nodeId,
+    output,
+    report,
+    fallbackMessages
+  };
+}
+
+async function resolveReportBundle(
+  snapshotState: GameState,
+  publicEvents: PublicEvent[],
+  tone: ReportTone
+): Promise<ReportBundle> {
+  const snapshot = cloneAndClampState(snapshotState);
+  const fallbackMessages: string[] = [];
+  const reportDecision = await getReportDecision(buildReportContext(snapshot, publicEvents, tone));
+  if (reportDecision.usedFallback) {
+    fallbackMessages.push(reportDecision.error ?? "Report generator AI failed");
+  }
+
+  return {
+    report: validateReportOutput(reportDecision.output),
+    fallbackMessages,
+    eventType: publicEvents[publicEvents.length - 1]?.type ?? "periodic"
+  };
 }
 
 export const useGameStore = create<GameStore>((set, get) => {
-  const runSimulationStep = (gameHoursElapsed: number, force = false) => {
-    const state = get();
-    if (state.game.ending) return;
-    if (state.isPaused && !force) return;
-
-    const nextTick = state.tick + 1;
-
-    const accumulatedGameHours = state.gameHoursUntilNextBatch + gameHoursElapsed;
-    const batchCount = Math.floor(accumulatedGameHours / COMMAND_BATCH_EVERY_GAME_HOURS);
-    const orderSlots = batchCount * COMMANDS_PER_BATCH;
-    const remainingGameHours = accumulatedGameHours - batchCount * COMMAND_BATCH_EVERY_GAME_HOURS;
-
-    const result = aiTick(state.game, state.orderQueue, nextTick, {
-      gameHoursDelta: gameHoursElapsed,
-      orderSlots
-    });
-
-    const knownCardKeys = new Set(state.cards.map((card) => card.key));
-    const newCards = result.artifacts.cards.filter((card) => !knownCardKeys.has(card.key));
-
+  const launchDecisionCycle = (
+    snapshotState: GameState,
+    commands: PlayerCommandIntent[],
+    recentEvents: string[],
+    tone: ReportTone,
+    sessionId: number
+  ) => {
     set(() => ({
-      tick: nextTick,
-      gameHoursUntilNextBatch: remainingGameHours,
-      game: result.nextState,
-      orderQueue: state.orderQueue.filter((order) => !result.consumedOrders.includes(order.id)),
-      reports: [...result.artifacts.reports, ...state.reports].slice(0, 40),
-      cards: [...newCards, ...state.cards].slice(0, 12),
-      agentLines: [...result.artifacts.agentLines, ...state.agentLines].slice(0, 24)
+      isDecisionPending: true,
+      aiStatusText:
+        commands.length > 0
+          ? "Orders relayed through staff channels."
+          : "Operational assessment in progress."
     }));
+
+    void resolveDecisionBundle(snapshotState, commands, recentEvents, tone)
+      .then((bundle) => {
+        const current = get();
+        if (current.sessionId !== sessionId) return;
+
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+
+          const game = cloneAndClampState(prev.game);
+          const liveEvents: string[] = [...bundle.eventLabels];
+          const livePublicEvents: PublicEvent[] = [];
+
+          for (const output of bundle.parserOutputs) {
+            game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes));
+          }
+
+          const germanResult = applyGermanIntent(game, bundle.germanOutput);
+          liveEvents.push(germanResult.event);
+          livePublicEvents.push(germanResult.publicEvent);
+
+          const orderOutcome = processOrders(game);
+          liveEvents.push(...orderOutcome.events);
+          livePublicEvents.push(...orderOutcome.publicEvents);
+
+          if (bundle.governmentOutput?.trigger) {
+            game.cityStability = clamp(game.cityStability + bundle.governmentOutput.stateDelta.cityStability);
+            game.politicalPressure = clamp(game.politicalPressure + bundle.governmentOutput.stateDelta.politicalPressure);
+            game.commandCohesion = clamp(game.commandCohesion + bundle.governmentOutput.stateDelta.commandCohesion);
+            game.governmentCollapseRisk = clamp(
+              game.governmentCollapseRisk + bundle.governmentOutput.stateDelta.governmentCollapseRisk
+            );
+            game.alliedOperationalMomentum = clamp(
+              game.alliedOperationalMomentum + bundle.governmentOutput.stateDelta.alliedOperationalMomentum
+            );
+
+            livePublicEvents.push({
+              type: "government_decision",
+              resultSummary: bundle.governmentOutput.publicMessage
+            });
+          }
+
+          for (const fallbackMessage of bundle.fallbackMessages) {
+            appendFallbackReport(game, fallbackMessage);
+          }
+
+          if (bundle.report) {
+            pushReport(game, {
+              headline: bundle.report.headline,
+              reportText: bundle.report.reportText,
+              advisorLine: bundle.report.advisorLine,
+              knowledgeHint: bundle.report.knowledgeHint,
+              eventType: livePublicEvents[livePublicEvents.length - 1]?.type ?? "decision"
+            });
+          }
+
+          const mergedRecentEvents = mergeRecentEvents(prev.recentEvents, liveEvents);
+          const ended = game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
+          if (ended) {
+            game.gameEnded = true;
+          }
+
+          return {
+            game,
+            recentEvents: mergedRecentEvents,
+            ending: ended ? resolveEnding(game) : prev.ending,
+            aiStatusText: null,
+            isDecisionPending: false
+          };
+        });
+      })
+      .catch((error) => {
+        const current = get();
+        if (current.sessionId !== sessionId) return;
+
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+
+          const game = cloneAndClampState(prev.game);
+          appendFallbackReport(game, error instanceof Error ? error.message : String(error));
+          return {
+            game,
+            aiStatusText: null,
+            isDecisionPending: false
+          };
+        });
+      });
+  };
+
+  const launchEnvironmentalCycle = (
+    snapshotState: GameState,
+    combat: ReturnType<typeof resolveCombatStep>[number],
+    tone: ReportTone,
+    sessionId: number
+  ) => {
+    void resolveEnvironmentalBundle(snapshotState, combat, tone)
+      .then((bundle) => {
+        const current = get();
+        if (current.sessionId !== sessionId) return;
+
+        set((prev) => {
+          if (prev.sessionId !== sessionId || !bundle.output) return prev;
+
+          const game = cloneAndClampState(prev.game);
+          const output = bundle.output;
+          for (const fallbackMessage of bundle.fallbackMessages) {
+            appendFallbackReport(game, fallbackMessage);
+          }
+
+          if (output.modifierType !== "no_modifier") {
+            const nodeUnits = game.units.filter((unit) => unit.nodeId === bundle.nodeId);
+            const impacted =
+              output.affectedUnitIds.length > 0
+                ? game.units.filter((unit) => output.affectedUnitIds.includes(unit.id))
+                : nodeUnits;
+
+            impacted.forEach((unit) => {
+              if (
+                output.affectedSide !== "both" &&
+                output.affectedSide !== "none" &&
+                unit.side !== output.affectedSide
+              ) {
+                return;
+              }
+
+              unit.strength = Math.max(0, unit.strength * (1 - output.numericModifiers.extraStrengthLossPct));
+              unit.morale = clamp(unit.morale + output.numericModifiers.moraleDelta);
+              unit.fatigue = clamp(unit.fatigue + output.numericModifiers.fatigueDelta);
+            });
+
+            game.shortTermRedeployDelayMinutes += output.numericModifiers.movementDelayMinutes;
+            const node = game.nodes.find((item) => item.id === bundle.nodeId);
+            if (node) {
+              node.controlPressure = clamp(
+                (node.controlPressure ?? 0) + output.numericModifiers.nodeControlDelta,
+                -100,
+                100
+              );
+            }
+
+            if (bundle.report) {
+              pushReport(game, {
+                headline: bundle.report.headline,
+                reportText: bundle.report.reportText,
+                advisorLine: bundle.report.advisorLine,
+                knowledgeHint: bundle.report.knowledgeHint,
+                eventType: "environmental_modifier"
+              });
+            }
+          }
+
+          return { game };
+        });
+      })
+      .catch(() => undefined);
+  };
+
+  const launchReportCycle = (
+    snapshotState: GameState,
+    publicEvents: PublicEvent[],
+    tone: ReportTone,
+    sessionId: number
+  ) => {
+    void resolveReportBundle(snapshotState, publicEvents, tone)
+      .then((bundle) => {
+        const current = get();
+        if (current.sessionId !== sessionId || !bundle.report) return;
+
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+
+          const game = cloneAndClampState(prev.game);
+          const report = bundle.report;
+          if (!report) return prev;
+          for (const fallbackMessage of bundle.fallbackMessages) {
+            appendFallbackReport(game, fallbackMessage);
+          }
+
+          pushReport(game, {
+            headline: report.headline,
+            reportText: report.reportText,
+            advisorLine: report.advisorLine,
+            knowledgeHint: report.knowledgeHint,
+            eventType: bundle.eventType
+          });
+
+          return { game };
+        });
+      })
+      .catch(() => undefined);
   };
 
   return {
-    game: cloneInitial(),
-    orderQueue: [],
-    reports: [
-      {
-        id: "intro-report",
-        tick: 0,
-        title: "Paris Emergency Window",
-        body: "Paris is under threat.",
-        dateLabel: formatCampaignTime(48)
-      }
-    ],
-    cards: [],
-    agentLines: [
-      {
-        id: "intro-line",
-        speaker: "Adviser",
-        text: "Clock reset complete: each 6 real seconds advance one game hour at normal speed."
-      }
-    ],
-    selectedFocus: "DEFEND_PARIS",
-    selectedCity: null,
+    game: createInitialGameState(),
+    ending: null,
+    selectedNodeId: null,
+    selectedUnitId: null,
+    pendingCommands: [],
+    recentEvents: [],
+    loopState: createLoopState(),
     isPaused: false,
     speedLevel: "NORMAL",
-    gameHoursUntilNextBatch: 0,
-    tick: 0,
+    isTickRunning: false,
+    reportTone: "staff_report",
+    aiStatusText: null,
+    isDecisionPending: false,
+    sessionId: 1,
 
     enqueueCommand: (text) => {
+      const trimmed = text.trim().slice(0, 160);
+      if (!trimmed) return;
+
       const state = get();
-      if (state.game.ending) return;
-
-      const safeText = text.trim().slice(0, 120);
-      const command = classifyCommand(state.selectedFocus, safeText);
-      const order: OrderItem = {
-        id: `order-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        createdAt: Date.now(),
-        command
-      };
-
-      const queueBody = safeText
-        ? `Strategic focus ${state.selectedFocus} accepted with note: "${safeText}".`
-        : `Strategic focus ${state.selectedFocus} accepted without extra note.`;
+      if (state.ending) return;
 
       set((prev) => ({
-        orderQueue: [...prev.orderQueue, order],
-        reports: [makeReport(prev.tick, "Command Received", queueBody, prev.game.timeLeft), ...prev.reports].slice(0, 40)
+        pendingCommands: [
+          ...prev.pendingCommands,
+          {
+            rawText: trimmed,
+            selectedNodeId: prev.selectedNodeId ?? undefined,
+            selectedUnitId: prev.selectedUnitId ?? undefined
+          }
+        ]
       }));
     },
 
-    runTick: (realSecondsElapsed) => {
-      const state = get();
-      const gameHoursElapsed = getGameHoursFromRealSeconds(realSecondsElapsed, state.speedLevel);
-      runSimulationStep(gameHoursElapsed, false);
+    runTick: async (realSecondsElapsed) => {
+      const current = get();
+      if (current.ending || current.isPaused || current.isTickRunning) return;
+
+      set(() => ({ isTickRunning: true }));
+      try {
+        const minutes = gameMinutesFromRealSeconds(realSecondsElapsed, get().speedLevel);
+
+        set((prev) => {
+          const game = cloneAndClampState(prev.game);
+          const loopState = { ...prev.loopState };
+          let recentEvents = [...prev.recentEvents];
+
+          if (prev.selectedNodeId) {
+            maybeDiscoverParisTransport(game, prev.selectedNodeId);
+          }
+
+          loopState.simAccumulatorMinutes += minutes;
+          loopState.decisionAccumulatorMinutes += minutes;
+          loopState.combatAccumulatorMinutes += minutes;
+          loopState.reportAccumulatorMinutes += minutes;
+
+          while (loopState.simAccumulatorMinutes >= SIM_STEP_GAME_MINUTES && !game.gameEnded) {
+            loopState.simAccumulatorMinutes -= SIM_STEP_GAME_MINUTES;
+
+            const simPublicEvents = runSimStep(game);
+            const stepEvents = simPublicEvents.map((event) => event.resultSummary);
+            let mergedPublicEvents: PublicEvent[] = [...simPublicEvents];
+
+            const orderProgress = processOrders(game);
+            stepEvents.push(...orderProgress.events);
+            mergedPublicEvents = [...mergedPublicEvents, ...orderProgress.publicEvents];
+
+            if (loopState.combatAccumulatorMinutes >= COMBAT_STEP_GAME_MINUTES) {
+              loopState.combatAccumulatorMinutes -= COMBAT_STEP_GAME_MINUTES;
+              const combat = runCombatStep(game);
+              stepEvents.push(...combat.events);
+              mergedPublicEvents = [...mergedPublicEvents, ...combat.publicEvents];
+
+              for (const majorCombat of combat.majorCombats) {
+                launchEnvironmentalCycle(game, majorCombat, prev.reportTone, prev.sessionId);
+              }
+            }
+
+            const majorEvent = mergedPublicEvents.some((event) => {
+              const kind = event.type.toLowerCase();
+              return (
+                kind.includes("combat") ||
+                kind.includes("government") ||
+                kind.includes("urban") ||
+                kind.includes("environmental")
+              );
+            });
+
+            if (
+              mergedPublicEvents.length > 0 &&
+              (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES || majorEvent)
+            ) {
+              if (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES) {
+                loopState.reportAccumulatorMinutes -= REPORT_MIN_INTERVAL_GAME_MINUTES;
+              } else {
+                loopState.reportAccumulatorMinutes = 0;
+              }
+              launchReportCycle(game, mergedPublicEvents, prev.reportTone, prev.sessionId);
+            }
+
+            recentEvents = mergeRecentEvents(recentEvents, stepEvents);
+
+            if (game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game)) {
+              game.gameEnded = true;
+              break;
+            }
+          }
+
+          let pendingCommands = prev.pendingCommands;
+          let aiStatusText = prev.aiStatusText;
+          let isDecisionPending = prev.isDecisionPending;
+
+          if (loopState.decisionAccumulatorMinutes >= DECISION_STEP_GAME_MINUTES && !prev.isDecisionPending) {
+            loopState.decisionAccumulatorMinutes -= DECISION_STEP_GAME_MINUTES;
+            const commandsForDecision = [...pendingCommands];
+            pendingCommands = [];
+            aiStatusText =
+              commandsForDecision.length > 0
+                ? "Orders relayed through staff channels."
+                : "Operational assessment in progress.";
+            isDecisionPending = true;
+            launchDecisionCycle(game, commandsForDecision, recentEvents, prev.reportTone, prev.sessionId);
+          }
+
+          return {
+            game,
+            loopState,
+            recentEvents,
+            pendingCommands,
+            isTickRunning: false,
+            ending: game.gameEnded ? resolveEnding(game) : prev.ending,
+            aiStatusText,
+            isDecisionPending
+          };
+        });
+      } catch (error) {
+        console.error("runTick failed", error);
+        set(() => ({ isTickRunning: false }));
+      }
     },
 
     togglePause: () => {
@@ -205,146 +766,81 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     decreaseSpeed: () => {
-      set((prev) => ({ speedLevel: clampSpeedLevel(prev.speedLevel, -1) }));
+      set((prev) => ({ speedLevel: nextSpeed(prev.speedLevel, -1) }));
     },
 
     increaseSpeed: () => {
-      set((prev) => ({ speedLevel: clampSpeedLevel(prev.speedLevel, 1) }));
+      set((prev) => ({ speedLevel: nextSpeed(prev.speedLevel, 1) }));
     },
 
-    setFocus: (focus) => set(() => ({ selectedFocus: focus })),
-
-    selectCity: (city) => {
-      const state = get();
-      const shouldDiscover = city === "paris" && state.game.parisThreat > 72 && !state.game.cityVehiclesDiscovered;
-
-      if (!shouldDiscover) {
-        set(() => ({ selectedCity: city }));
-        return;
-      }
-
-      set((prev) => ({
-        selectedCity: city,
-        game: {
-          ...prev.game,
-          cityVehiclesDiscovered: true
-        },
-        reports: [
-          makeReport(
-            prev.tick,
-            "Urban Transport Note",
-            "Paris transport remains operational, mostly for civilian commuting.",
-            prev.game.timeLeft
-          ),
-          ...prev.reports
-        ].slice(0, 40)
-      }));
+    setReportTone: (tone) => {
+      set(() => ({ reportTone: tone }));
     },
 
-    closeCityPopup: () => set(() => ({ selectedCity: null })),
+    selectNode: (nodeId) => {
+      set(() => ({ selectedNodeId: nodeId }));
+    },
+
+    closeNode: () => {
+      set(() => ({ selectedNodeId: null }));
+    },
+
+    selectUnit: (unitId) => {
+      set(() => ({ selectedUnitId: unitId }));
+    },
 
     mobilizeCityVehicles: () => {
       const state = get();
-      if (!state.game.cityVehiclesDiscovered || state.game.cityVehiclesUsed || state.game.ending) return;
+      if (state.ending) return;
 
       set((prev) => ({
-        game: {
-          ...prev.game,
-          cityVehiclesUsed: true,
-          parisThreat: Math.max(0, prev.game.parisThreat - 20),
-          morale: Math.min(100, prev.game.morale + 10),
-          cityStability: Math.max(0, prev.game.cityStability - 8),
-          supply: Math.min(100, prev.game.supply + 6),
-          outcomeScores: {
-            ...prev.game.outcomeScores,
-            miracleMarne: Math.min(100, prev.game.outcomeScores.miracleMarne + 20)
-          }
-        },
-        cards: [
+        pendingCommands: [
+          ...prev.pendingCommands,
           {
-            id: `city-${Date.now()}`,
-            key: "city-vehicles",
-            title: "Taxis of the Marne",
-            body: "In September 1914, Paris taxis moved troops toward the front and became a symbol of civic mobilization."
-          },
-          ...prev.cards.filter((card) => card.key !== "city-vehicles")
-        ],
-        reports: [
-          makeReport(
-            prev.tick,
-            "City Requisition Approved",
-            "Civilian vehicles were requisitioned for emergency troop transfer and rapid local support.",
-            prev.game.timeLeft
-          ),
-          ...prev.reports
-        ].slice(0, 40)
+            rawText: "Requisition city vehicles for rapid local transfer.",
+            selectedNodeId: "paris",
+            selectedUnitId: prev.selectedUnitId ?? undefined
+          }
+        ]
       }));
     },
 
     dispatchCityForces: () => {
       const state = get();
-      if (!state.selectedCity || state.game.ending) return;
-      const city = state.selectedCity;
+      if (state.ending || !state.selectedNodeId) return;
 
-      const cityFocus: Record<CityId, StrategicFocus> = {
-        paris: "DEFEND_PARIS",
-        meaux: "COUNTER_STRIKE",
-        chateauThierry: "COUNTER_STRIKE",
-        marne: "COUNTER_STRIKE",
-        verdun: "DELAY_GERMANS",
-        reims: "BOOST_RECON"
-      };
-
-      const focus = cityFocus[city];
-      const command = classifyCommand(focus, `Dispatch reserve from ${city}`);
-      const order: OrderItem = {
-        id: `city-order-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        createdAt: Date.now(),
-        command
-      };
-
+      const cmd = `Redeploy nearest reserve toward ${state.selectedNodeId}.`;
       set((prev) => ({
-        selectedFocus: focus,
-        orderQueue: [...prev.orderQueue, order],
-        reports: [
-          makeReport(
-            prev.tick,
-            "City Dispatch Ordered",
-            `${city.toUpperCase()} command node redirected reserve and transport assets to active sectors.`,
-            prev.game.timeLeft
-          ),
-          ...prev.reports
-        ].slice(0, 40)
+        pendingCommands: [
+          ...prev.pendingCommands,
+          {
+            rawText: cmd,
+            selectedNodeId: prev.selectedNodeId ?? undefined,
+            selectedUnitId: prev.selectedUnitId ?? undefined
+          }
+        ]
       }));
     },
 
-    reset: () =>
-      set(() => ({
-        game: cloneInitial(),
-        orderQueue: [],
-        reports: [
-          {
-            id: "intro-report-reset",
-            tick: 0,
-            title: "Paris Emergency Window",
-            body: "Paris is under threat.",
-            dateLabel: formatCampaignTime(48)
-          }
-        ],
-        cards: [],
-        agentLines: [
-          {
-            id: "intro-line-reset",
-            speaker: "Adviser",
-            text: "The front is unstable, but you still control strategic direction."
-          }
-        ],
-        selectedFocus: "DEFEND_PARIS",
-        selectedCity: null,
+    reset: () => {
+      set((prev) => ({
+        game: createInitialGameState(),
+        ending: null,
+        selectedNodeId: null,
+        selectedUnitId: null,
+        pendingCommands: [],
+        recentEvents: [],
+        loopState: createLoopState(),
         isPaused: false,
         speedLevel: "NORMAL",
-        gameHoursUntilNextBatch: 0,
-        tick: 0
-      }))
+        isTickRunning: false,
+        reportTone: "staff_report",
+        aiStatusText: null,
+        isDecisionPending: false,
+        sessionId: prev.sessionId + 1
+      }));
+    }
   };
 });
+
+export type { SpeedLevel };
