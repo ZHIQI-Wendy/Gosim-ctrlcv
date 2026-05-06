@@ -3,6 +3,7 @@
 # 🎮 What If: Marne
 
 An AI-supported interactive historical strategy experience built for the **Gosim Hackathon (HCI × Education Track)**.
+<img width="1536" height="1024" alt="928283a0172eba25e2a6eb56a0d89562" src="https://github.com/user-attachments/assets/53f2ca06-9ea8-4735-a5d7-eb86772cf0fa" />
 
 ---
 
