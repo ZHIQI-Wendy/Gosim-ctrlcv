@@ -3,35 +3,38 @@
 import { create } from "zustand";
 import {
   COMBAT_STEP_GAME_MINUTES,
-  DECISION_STEP_GAME_MINUTES,
   REPORT_MIN_INTERVAL_GAME_MINUTES,
   SIM_STEP_GAME_MINUTES,
   TOTAL_GAME_HOURS,
   createInitialGameState
 } from "@/data/initialState";
-import { getEnvironmentalDecision, getFrenchCommandDecision, getGermanCommanderDecision, getGovernmentDecision, getReportDecision } from "@/lib/ai/decisionDispatch";
-import { buildEnvironmentalContext } from "@/lib/ai/context/buildEnvironmentalContext";
+import {
+  getDirectorDecision,
+  getFrenchCommandDecision,
+  getGermanCommanderDecision,
+  getReportDecision
+} from "@/lib/ai/decisionDispatch";
+import { buildDirectorContext } from "@/lib/ai/context/buildDirectorContext";
 import { buildFrenchCommandContext } from "@/lib/ai/context/buildFrenchCommandContext";
 import { buildGermanCommanderContext } from "@/lib/ai/context/buildGermanCommanderContext";
-import { buildGovernmentDecisionContext } from "@/lib/ai/context/buildGovernmentDecisionContext";
 import { buildReportContext } from "@/lib/ai/context/buildReportContext";
+import { calculateTransmissionEfficiency } from "@/lib/ai/transmissionEfficiency";
 import { resolveCombatStep } from "@/lib/combat";
 import { updateSustainedThreatTimers, resolveEnding, shouldEndGame } from "@/lib/endings";
 import { cloneAndClampState } from "@/lib/movement";
-import { applyGermanIntent, createOrderFromParserOutput, processOrders, advanceMovingUnits, PublicEvent } from "@/lib/orders";
+import { advanceMovingUnits, applyGermanIntent, createOrderFromParserOutput, processOrders, PublicEvent } from "@/lib/orders";
 import { calculateParisThreat } from "@/lib/parisThreat";
 import { gameMinutesFromRealSeconds, SpeedLevel } from "@/lib/timeLoop";
 import { clamp, makeId } from "@/lib/utils";
-import { validateEnvironmentalOutput, validateFrenchParserOutput, validateGermanOutput, validateGovernmentDecision, validateReportOutput } from "@/lib/validators";
+import {
+  validateDirectorOutput,
+  validateFrenchParserOutput,
+  validateGermanOutput,
+  validateReportOutput
+} from "@/lib/validators";
 import { GAME_CONFIG } from "@/lib/config/gameConfig";
 import { buildAuditLinesFromPublicEvents, postActionAuditLines } from "@/lib/actionAudit";
-import {
-  EndingType,
-  GameState,
-  MapNodeId,
-  Report,
-  ReportTone
-} from "@/types";
+import { EndingType, GameState, MapNodeId, PendingAgentState, Report, ReportTone } from "@/types";
 
 export type PlayerCommandIntent = {
   rawText: string;
@@ -39,31 +42,41 @@ export type PlayerCommandIntent = {
   selectedUnitId?: string;
 };
 
-type DecisionBundle = {
+type FrenchCommandBundle = {
   parserOutputs: ReturnType<typeof validateFrenchParserOutput>[];
-  germanOutput: ReturnType<typeof validateGermanOutput>;
-  governmentOutput?: ReturnType<typeof validateGovernmentDecision>;
-  report?: ReturnType<typeof validateReportOutput>;
   eventLabels: string[];
   fallbackMessages: string[];
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
-type EnvironmentalBundle = {
-  nodeId: MapNodeId;
-  output?: ReturnType<typeof validateEnvironmentalOutput>;
-  report?: ReturnType<typeof validateReportOutput>;
+type GermanIntentBundle = {
+  germanOutput: ReturnType<typeof validateGermanOutput>;
+  eventLabel: string;
+  publicEvent: PublicEvent;
   fallbackMessages: string[];
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
+};
+
+type DirectorBundle = {
+  output: ReturnType<typeof validateDirectorOutput>;
+  fallbackMessages: string[];
+  eventLabels: string[];
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 type ReportBundle = {
-  report?: ReturnType<typeof validateReportOutput>;
+  report: ReturnType<typeof validateReportOutput>;
   fallbackMessages: string[];
   eventType?: string;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 export type EngineLoopState = {
   simAccumulatorMinutes: number;
-  decisionAccumulatorMinutes: number;
   combatAccumulatorMinutes: number;
   reportAccumulatorMinutes: number;
 };
@@ -81,7 +94,7 @@ interface GameStore {
   isTickRunning: boolean;
   reportTone: ReportTone;
   aiStatusText: string | null;
-  isDecisionPending: boolean;
+  activeReportModal: Report | null;
   sessionId: number;
 
   enqueueCommand: (text: string) => void;
@@ -95,6 +108,7 @@ interface GameStore {
   selectUnit: (unitId: string | null) => void;
   mobilizeCityVehicles: () => void;
   dispatchCityForces: () => void;
+  dismissActiveReport: () => void;
   reset: () => void;
   demoAdvanceHours: (hours: number) => void;
   demoPushReport: (headline: string, reportText: string, advisorLine?: string, eventType?: string) => void;
@@ -111,21 +125,30 @@ function nextSpeed(current: SpeedLevel, direction: -1 | 1): SpeedLevel {
   return SPEED_LEVELS[Math.max(0, Math.min(SPEED_LEVELS.length - 1, index + direction))];
 }
 
+function createPendingAgentState(): PendingAgentState {
+  return {
+    french: { status: "idle", lastRunMinutes: 0, pending: false },
+    german: { status: "idle", lastRunMinutes: 0, pending: false },
+    director: { status: "idle", lastRunMinutes: 0, pending: false },
+    reporter: { status: "idle", lastRunMinutes: 0, pending: false }
+  };
+}
+
 export function createLoopState(): EngineLoopState {
   return {
     simAccumulatorMinutes: 0,
-    decisionAccumulatorMinutes: 0,
     combatAccumulatorMinutes: 0,
     reportAccumulatorMinutes: 0
   };
 }
 
-function pushReport(state: GameState, report: Omit<Report, "id" | "createdAtMinutes">): void {
-  state.reports.unshift({
+function pushReport(state: GameState, report: Omit<Report, "id" | "createdAtMinutes">): Report {
+  const created = {
     id: makeId("report"),
     createdAtMinutes: state.currentTimeMinutes,
     ...report
-  });
+  };
+  state.reports.unshift(created);
   state.reports = state.reports.slice(0, 80);
 
   if (report.knowledgeHint) {
@@ -137,6 +160,8 @@ function pushReport(state: GameState, report: Omit<Report, "id" | "createdAtMinu
     });
     state.knowledgeCards = state.knowledgeCards.slice(0, 16);
   }
+
+  return created;
 }
 
 function appendFallbackReport(state: GameState, details: string): void {
@@ -148,6 +173,19 @@ function appendFallbackReport(state: GameState, details: string): void {
   });
 }
 
+function appendStaleResultReport(state: GameState, agentName: string, sourceGameTimeMinutes: number): void {
+  pushReport(state, {
+    headline: `${agentName} result rejected`,
+    reportText: `Returned result from minute ${sourceGameTimeMinutes} was rejected as stale against the live simulation state.`,
+    advisorLine: "Independent agent cycles continue without replaying stale decisions.",
+    eventType: "stale_result"
+  });
+}
+
+function bumpStateVersion(state: GameState): void {
+  state.stateVersion += 1;
+}
+
 function updateLocalContact(state: GameState): void {
   for (const node of state.nodes) {
     const alliedFront = state.units.some(
@@ -156,10 +194,7 @@ function updateLocalContact(state: GameState): void {
     const germanFront = state.units.some(
       (unit) => unit.side === "german" && unit.role === "front" && unit.nodeId === node.id && unit.strength > 0
     );
-
-    if (alliedFront && germanFront) {
-      node.control = "contested";
-    }
+    if (alliedFront && germanFront) node.control = "contested";
   }
 }
 
@@ -175,30 +210,25 @@ function applyNoOpDrift(state: GameState): void {
       unit.fatigue = clamp(unit.fatigue + 0.5);
       unit.supply = clamp(unit.supply - 0.4);
     }
-
     if (unit.role !== "moving") {
       unit.readiness = clamp(unit.readiness + (unit.stance === "hold" ? 0.5 : 0.2));
     }
   });
 
   state.railwayCongestion = clamp(state.railwayCongestion + 0.5);
-
   if (state.germanOperationalMomentum > 65 && state.germanCommandCohesion < 70) {
     state.flankGap = clamp(state.flankGap + 1.5);
   }
-
   if (state.parisThreat > 75) {
     state.cityStability = clamp(state.cityStability - 1.2);
     state.politicalPressure = clamp(state.politicalPressure + 1.5);
   }
-
   state.shortTermRedeployDelayMinutes = Math.max(0, state.shortTermRedeployDelayMinutes - SIM_STEP_GAME_MINUTES);
 }
 
 function maybeDiscoverParisTransport(state: GameState, selectedNodeId?: MapNodeId): boolean {
   if (selectedNodeId !== "paris") return false;
   if (state.parisThreat <= 70 || state.cityVehiclesDiscovered) return false;
-
   state.cityVehiclesDiscovered = true;
   pushReport(state, {
     headline: "Urban Transport Observation",
@@ -210,148 +240,71 @@ function maybeDiscoverParisTransport(state: GameState, selectedNodeId?: MapNodeI
   return true;
 }
 
-function maybeNeedsGovernmentDecision(state: GameState, recentEvents: string[]): boolean {
-  if (state.parisThreat > 75) return true;
-  if (state.politicalPressure > 75) return true;
-  if (state.cityStability < 45) return true;
-  if (state.governmentCollapseRisk > 65) return true;
-  if (state.invalidCommandsInLast6Hours >= 2) return true;
-  return recentEvents.some((event) => event.toLowerCase().includes("paris crisis"));
+function maybeNeedsDirectorDecision(state: GameState, recentEvents: string[]): boolean {
+  if (state.parisThreat > GAME_CONFIG.governmentDecisionParisThreatThreshold) return true;
+  if (state.politicalPressure > GAME_CONFIG.governmentDecisionPoliticalPressureThreshold) return true;
+  if (state.cityStability < GAME_CONFIG.governmentDecisionCityStabilityMin) return true;
+  if (state.governmentCollapseRisk > GAME_CONFIG.governmentDecisionCollapseRiskThreshold) return true;
+  if (state.invalidCommandsInLast6Hours >= GAME_CONFIG.governmentDecisionInvalidCommandsThreshold) return true;
+  return recentEvents.some((event) => event.toLowerCase().includes("crisis"));
 }
 
 function mergeRecentEvents(existing: string[], additions: string[]): string[] {
   return [...existing, ...additions].slice(-24);
 }
 
-function decisionStatusText(commands: PlayerCommandIntent[]): string {
-  return commands.length > 0 ? "Orders relayed through staff channels." : "Operational assessment in progress.";
+function deriveAiStatusText(pending: PendingAgentState): string | null {
+  const active = Object.entries(pending)
+    .filter(([, value]) => value.pending)
+    .map(([key]) => key);
+  if (active.length === 0) return null;
+  return `${active.join(", ")} agent${active.length > 1 ? "s" : ""} pending`;
 }
 
-function applyDecisionBundleToGame(
+function isAgentResultStale(
   game: GameState,
-  bundle: DecisionBundle
-): { events: string[]; publicEvents: PublicEvent[] } {
-  const liveEvents: string[] = [...bundle.eventLabels];
-  const livePublicEvents: PublicEvent[] = [];
+  sourceGameTimeMinutes: number,
+  sourceStateVersion: number
+): boolean {
+  const minuteLag = game.currentTimeMinutes - sourceGameTimeMinutes;
+  const versionLag = game.stateVersion - sourceStateVersion;
+  return minuteLag > GAME_CONFIG.agentDecisionStalenessTreshold || versionLag > 12;
+}
 
-  for (const output of bundle.parserOutputs) {
-    game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes, game));
-  }
-
-  const germanResult = applyGermanIntent(game, bundle.germanOutput);
-  liveEvents.push(germanResult.event);
-  livePublicEvents.push(germanResult.publicEvent);
-
-  const orderOutcome = processOrders(game);
-  liveEvents.push(...orderOutcome.events);
-  livePublicEvents.push(...orderOutcome.publicEvents);
-
-  if (bundle.governmentOutput?.trigger) {
-    game.cityStability = clamp(game.cityStability + bundle.governmentOutput.stateDelta.cityStability);
-    game.politicalPressure = clamp(game.politicalPressure + bundle.governmentOutput.stateDelta.politicalPressure);
-    game.commandCohesion = clamp(game.commandCohesion + bundle.governmentOutput.stateDelta.commandCohesion);
-    game.governmentCollapseRisk = clamp(
-      game.governmentCollapseRisk + bundle.governmentOutput.stateDelta.governmentCollapseRisk
-    );
-    game.alliedOperationalMomentum = clamp(
-      game.alliedOperationalMomentum + bundle.governmentOutput.stateDelta.alliedOperationalMomentum
-    );
-
-    livePublicEvents.push({
-      type: "government_decision",
-      resultSummary: bundle.governmentOutput.publicMessage
-    });
-  }
-
-  for (const fallbackMessage of bundle.fallbackMessages) {
-    appendFallbackReport(game, fallbackMessage);
-  }
-
-  if (bundle.report) {
-    pushReport(game, {
-      headline: bundle.report.headline,
-      reportText: bundle.report.reportText,
-      advisorLine: bundle.report.advisorLine,
-      knowledgeHint: bundle.report.knowledgeHint,
-      eventType: livePublicEvents[livePublicEvents.length - 1]?.type ?? "decision"
-    });
-  }
-
+function markAgentPending(
+  pendingState: PendingAgentState,
+  key: keyof PendingAgentState,
+  currentTimeMinutes: number
+): PendingAgentState {
   return {
-    events: liveEvents,
-    publicEvents: livePublicEvents
+    ...pendingState,
+    [key]: {
+      status: "pending",
+      pending: true,
+      lastRunMinutes: currentTimeMinutes
+    }
   };
 }
 
-function applyEnvironmentalBundleToGame(game: GameState, bundle: EnvironmentalBundle): void {
-  if (!bundle.output) return;
-
-  const output = bundle.output;
-  for (const fallbackMessage of bundle.fallbackMessages) {
-    appendFallbackReport(game, fallbackMessage);
-  }
-
-  if (output.modifierType === "no_modifier") return;
-
-  const nodeUnits = game.units.filter((unit) => unit.nodeId === bundle.nodeId);
-  const impacted =
-    output.affectedUnitIds.length > 0
-      ? game.units.filter((unit) => output.affectedUnitIds.includes(unit.id))
-      : nodeUnits;
-
-  impacted.forEach((unit) => {
-    if (output.affectedSide !== "both" && output.affectedSide !== "none" && unit.side !== output.affectedSide) {
-      return;
+function markAgentResolved(pendingState: PendingAgentState, key: keyof PendingAgentState): PendingAgentState {
+  return {
+    ...pendingState,
+    [key]: {
+      ...pendingState[key],
+      status: "idle",
+      pending: false
     }
-
-    unit.strength = Math.max(0, unit.strength * (1 - output.numericModifiers.extraStrengthLossPct));
-    unit.morale = clamp(unit.morale + output.numericModifiers.moraleDelta);
-    unit.fatigue = clamp(unit.fatigue + output.numericModifiers.fatigueDelta);
-  });
-
-  game.shortTermRedeployDelayMinutes += output.numericModifiers.movementDelayMinutes;
-  const node = game.nodes.find((item) => item.id === bundle.nodeId);
-  if (node) {
-    node.controlPressure = clamp((node.controlPressure ?? 0) + output.numericModifiers.nodeControlDelta, -100, 100);
-  }
-
-  if (bundle.report) {
-    pushReport(game, {
-      headline: bundle.report.headline,
-      reportText: bundle.report.reportText,
-      advisorLine: bundle.report.advisorLine,
-      knowledgeHint: bundle.report.knowledgeHint,
-      eventType: "environmental_modifier"
-    });
-  }
-}
-
-function applyReportBundleToGame(game: GameState, bundle: ReportBundle): void {
-  const report = bundle.report;
-  if (!report) return;
-
-  for (const fallbackMessage of bundle.fallbackMessages) {
-    appendFallbackReport(game, fallbackMessage);
-  }
-
-  pushReport(game, {
-    headline: report.headline,
-    reportText: report.reportText,
-    advisorLine: report.advisorLine,
-    knowledgeHint: report.knowledgeHint,
-    eventType: bundle.eventType
-  });
+  };
 }
 
 function runSimStep(state: GameState): PublicEvent[] {
   const moveEvents = advanceMovingUnits(state, SIM_STEP_GAME_MINUTES);
   applyNoOpDrift(state);
   updateLocalContact(state);
-
   state.currentTimeMinutes += SIM_STEP_GAME_MINUTES;
   state.parisThreat = calculateParisThreat(state);
   updateSustainedThreatTimers(state, SIM_STEP_GAME_MINUTES);
-
+  bumpStateVersion(state);
   return moveEvents;
 }
 
@@ -363,12 +316,10 @@ function runCombatStep(state: GameState): {
   const events: string[] = [];
   const publicEvents: PublicEvent[] = [];
   const combats = resolveCombatStep(state);
-
   for (const combat of combats) {
     events.push(
       `Combat at ${combat.nodeId}: Allied loss ${combat.alliedLoss.toFixed(1)}, German loss ${combat.germanLoss.toFixed(1)}.`
     );
-
     publicEvents.push({
       type: "combat",
       nodeId: combat.nodeId,
@@ -376,141 +327,87 @@ function runCombatStep(state: GameState): {
       resultSummary: `Heavy exchange at ${combat.nodeId}; losses A:${combat.alliedLoss.toFixed(1)} G:${combat.germanLoss.toFixed(1)}.`
     });
   }
-
   state.parisThreat = calculateParisThreat(state);
+  bumpStateVersion(state);
   return { events, publicEvents, majorCombats: combats.filter((combat) => combat.major) };
 }
 
-async function resolveDecisionBundle(
+async function resolveFrenchCommandBundle(
   snapshotState: GameState,
   commands: PlayerCommandIntent[],
   recentEvents: string[]
-): Promise<DecisionBundle> {
+): Promise<FrenchCommandBundle> {
   const snapshot = cloneAndClampState(snapshotState);
   const eventLabels: string[] = [];
-  const publicEvents: PublicEvent[] = [];
   const fallbackMessages: string[] = [];
-  const parserPromises = commands.map((command) => {
-    const parserInput = buildFrenchCommandContext(
-      snapshot,
-      command.rawText,
-      command.selectedNodeId,
-      command.selectedUnitId,
-      recentEvents
-    );
-    return getFrenchCommandDecision(parserInput);
-  });
+  const parserResults = await Promise.all(
+    commands.map((command) =>
+      getFrenchCommandDecision(
+        buildFrenchCommandContext(snapshot, command.rawText, command.selectedNodeId, command.selectedUnitId, recentEvents)
+      )
+    )
+  );
 
-  const germanPromise = getGermanCommanderDecision(buildGermanCommanderContext(snapshot, recentEvents));
-  const governmentPromise = getGovernmentDecision(buildGovernmentDecisionContext(snapshot, recentEvents));
-
-  const [parserResults, germanDecision, governmentDecision] = await Promise.all([
-    Promise.all(parserPromises),
-    germanPromise,
-    governmentPromise
-  ]);
-
-  const parserOutputs: ReturnType<typeof validateFrenchParserOutput>[] = [];
-  for (const parserResult of parserResults) {
+  const parserOutputs = parserResults.map((parserResult) => {
     if (parserResult.usedFallback) {
       fallbackMessages.push(parserResult.error ?? "French command parser AI failed");
       eventLabels.push("AI fallback used");
     }
-
     const safeOutput = validateFrenchParserOutput(snapshot, parserResult.output);
-    parserOutputs.push(safeOutput);
-    snapshot.orderQueue.push(createOrderFromParserOutput(safeOutput, snapshot.currentTimeMinutes, snapshot));
     eventLabels.push(`Player order parsed: ${safeOutput.action}`);
-  }
-
-  if (germanDecision.usedFallback) {
-    fallbackMessages.push(germanDecision.error ?? "German commander AI failed");
-    eventLabels.push("AI fallback used");
-  }
-
-  const safeGerman = validateGermanOutput(snapshot, germanDecision.output);
-  const germanResult = applyGermanIntent(snapshot, safeGerman);
-  eventLabels.push(germanResult.event);
-  publicEvents.push(germanResult.publicEvent);
-
-  const orderOutcome = processOrders(snapshot);
-  eventLabels.push(...orderOutcome.events);
-  publicEvents.push(...orderOutcome.publicEvents);
-
-  let governmentOutput: ReturnType<typeof validateGovernmentDecision> | undefined;
-  if (governmentDecision.usedFallback) {
-    fallbackMessages.push(governmentDecision.error ?? "Government decision AI failed");
-    eventLabels.push("AI fallback used");
-  }
-
-  governmentOutput = validateGovernmentDecision(governmentDecision.output);
-  snapshot.cityStability = clamp(snapshot.cityStability + governmentOutput.stateDelta.cityStability);
-  snapshot.politicalPressure = clamp(snapshot.politicalPressure + governmentOutput.stateDelta.politicalPressure);
-  snapshot.commandCohesion = clamp(snapshot.commandCohesion + governmentOutput.stateDelta.commandCohesion);
-  snapshot.governmentCollapseRisk = clamp(
-    snapshot.governmentCollapseRisk + governmentOutput.stateDelta.governmentCollapseRisk
-  );
-  snapshot.alliedOperationalMomentum = clamp(
-    snapshot.alliedOperationalMomentum + governmentOutput.stateDelta.alliedOperationalMomentum
-  );
-
-  eventLabels.push(`Government event: ${governmentOutput.action}`);
-  publicEvents.push({
-    type: "government_decision",
-    resultSummary: governmentOutput.publicMessage
+    return safeOutput;
   });
 
   return {
     parserOutputs,
-    germanOutput: safeGerman,
-    governmentOutput,
-    report: undefined,
     eventLabels,
-    fallbackMessages
+    fallbackMessages,
+    sourceGameTimeMinutes: snapshot.currentTimeMinutes,
+    sourceStateVersion: snapshot.stateVersion
   };
 }
 
-async function resolveEnvironmentalBundle(
+async function resolveGermanIntentBundle(
   snapshotState: GameState,
-  combat: ReturnType<typeof resolveCombatStep>[number],
-  tone: ReportTone
-): Promise<EnvironmentalBundle> {
+  recentEvents: string[]
+): Promise<GermanIntentBundle> {
   const snapshot = cloneAndClampState(snapshotState);
   const fallbackMessages: string[] = [];
-
-  const envDecision = await getEnvironmentalDecision(buildEnvironmentalContext(snapshot, combat));
-  if (envDecision.usedFallback) {
-    fallbackMessages.push(envDecision.error ?? "Environmental adjudicator AI failed");
+  const germanDecision = await getGermanCommanderDecision(buildGermanCommanderContext(snapshot, recentEvents));
+  if (germanDecision.usedFallback) {
+    fallbackMessages.push(germanDecision.error ?? "German commander AI failed");
   }
-
-  const output = validateEnvironmentalOutput(envDecision.output);
-  let report: ReturnType<typeof validateReportOutput> | undefined;
-
-  if (output.modifierType !== "no_modifier") {
-    const reportDecision = await getReportDecision(
-      buildReportContext(
-        snapshot,
-        [
-          {
-            type: "environmental_modifier",
-            nodeId: combat.nodeId,
-            resultSummary: output.rationale
-          }
-        ],
-        tone
-      )
-    );
-    if (reportDecision.usedFallback) {
-      fallbackMessages.push(reportDecision.error ?? "Report generator AI failed");
-    }
-    report = validateReportOutput(reportDecision.output);
-  }
-
+  const safeGerman = validateGermanOutput(snapshot, germanDecision.output);
+  const germanResult = applyGermanIntent(snapshot, safeGerman);
   return {
-    nodeId: combat.nodeId,
+    germanOutput: safeGerman,
+    eventLabel: germanResult.event,
+    publicEvent: germanResult.publicEvent,
+    fallbackMessages,
+    sourceGameTimeMinutes: snapshot.currentTimeMinutes,
+    sourceStateVersion: snapshot.stateVersion
+  };
+}
+
+async function resolveDirectorBundle(
+  snapshotState: GameState,
+  recentEvents: string[],
+  eventType: "periodic" | "combat" | "crisis" | "movement" | "logistics",
+  combatContext?: { nodeId: MapNodeId; alliedLoss: number; germanLoss: number }
+): Promise<DirectorBundle> {
+  const snapshot = cloneAndClampState(snapshotState);
+  const fallbackMessages: string[] = [];
+  const decision = await getDirectorDecision(buildDirectorContext(snapshot, { eventType, recentEvents, combatContext }));
+  if (decision.usedFallback) {
+    fallbackMessages.push(decision.error ?? "Director AI failed");
+  }
+  const output = validateDirectorOutput(decision.output);
+  return {
     output,
-    report,
-    fallbackMessages
+    fallbackMessages,
+    eventLabels: output.trigger ? [`Director event: ${output.action}`] : [],
+    sourceGameTimeMinutes: snapshot.currentTimeMinutes,
+    sourceStateVersion: snapshot.stateVersion
   };
 }
 
@@ -525,96 +422,212 @@ async function resolveReportBundle(
   if (reportDecision.usedFallback) {
     fallbackMessages.push(reportDecision.error ?? "Report generator AI failed");
   }
-
+  const report = validateReportOutput(reportDecision.output);
   return {
-    report: validateReportOutput(reportDecision.output),
+    report,
     fallbackMessages,
-    eventType: publicEvents[publicEvents.length - 1]?.type ?? "periodic"
+    eventType: publicEvents[publicEvents.length - 1]?.type ?? "periodic",
+    sourceGameTimeMinutes: snapshot.currentTimeMinutes,
+    sourceStateVersion: snapshot.stateVersion
   };
 }
 
+function applyFrenchOrderBundleToGame(game: GameState, bundle: FrenchCommandBundle): string[] {
+  for (const output of bundle.parserOutputs) {
+    game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes, game));
+  }
+  if (bundle.parserOutputs.length > 0) bumpStateVersion(game);
+  bundle.fallbackMessages.forEach((message) => appendFallbackReport(game, message));
+  return bundle.eventLabels;
+}
+
+function applyGermanIntentBundleToGame(
+  game: GameState,
+  bundle: GermanIntentBundle
+): { events: string[]; publicEvents: PublicEvent[] } {
+  bundle.fallbackMessages.forEach((message) => appendFallbackReport(game, message));
+  const germanResult = applyGermanIntent(game, bundle.germanOutput);
+  bumpStateVersion(game);
+  return { events: [germanResult.event], publicEvents: [germanResult.publicEvent] };
+}
+
+function applyDirectorBundleToGame(
+  game: GameState,
+  bundle: DirectorBundle
+): { events: string[]; publicEvents: PublicEvent[] } {
+  bundle.fallbackMessages.forEach((message) => appendFallbackReport(game, message));
+  const output = bundle.output;
+  if (!output.trigger) return { events: [], publicEvents: [] };
+
+  game.cityStability = clamp(game.cityStability + output.stateDelta.cityStability);
+  game.politicalPressure = clamp(game.politicalPressure + output.stateDelta.politicalPressure);
+  game.commandCohesion = clamp(game.commandCohesion + output.stateDelta.commandCohesion);
+  game.governmentCollapseRisk = clamp(game.governmentCollapseRisk + output.stateDelta.governmentCollapseRisk);
+  game.alliedOperationalMomentum = clamp(game.alliedOperationalMomentum + output.stateDelta.alliedOperationalMomentum);
+  game.germanOperationalMomentum = clamp(game.germanOperationalMomentum + output.stateDelta.germanOperationalMomentum);
+  game.railwayCongestion = clamp(game.railwayCongestion + output.stateDelta.railwayCongestion);
+  game.shortTermRedeployDelayMinutes += output.stateDelta.shortTermRedeployDelayMinutes;
+
+  output.unitDelta.forEach((delta) => {
+    const unit = game.units.find((item) => item.id === delta.unitId);
+    if (!unit) return;
+    unit.strength = Math.max(0, unit.strength * (1 + delta.strengthDeltaPct));
+    unit.morale = clamp(unit.morale + delta.moraleDelta);
+    unit.fatigue = clamp(unit.fatigue + delta.fatigueDelta);
+    unit.supply = clamp(unit.supply + delta.supplyDelta);
+    unit.cohesion = clamp(unit.cohesion + delta.cohesionDelta);
+    unit.readiness = clamp(unit.readiness + delta.readinessDelta);
+  });
+
+  output.nodeDelta.forEach((delta) => {
+    const node = game.nodes.find((item) => item.id === delta.nodeId);
+    if (!node) return;
+    node.controlPressure = clamp((node.controlPressure ?? 0) + delta.controlPressureDelta, -100, 100);
+    node.defenseValue = Math.max(0, node.defenseValue + delta.defenseValueDelta);
+    node.supplyValue = Math.max(0, node.supplyValue + delta.supplyValueDelta);
+    node.transportValue = Math.max(0, node.transportValue + delta.transportValueDelta);
+  });
+
+  bumpStateVersion(game);
+  return {
+    events: bundle.eventLabels,
+    publicEvents: [
+      {
+        type: "director_decision",
+        nodeId: output.nodeDelta[0]?.nodeId,
+        unitIds: output.unitDelta.map((delta) => delta.unitId),
+        resultSummary: output.publicMessage
+      }
+    ]
+  };
+}
+
+function applyReportBundleToGame(game: GameState, bundle: ReportBundle): Report | null {
+  bundle.fallbackMessages.forEach((message) => appendFallbackReport(game, message));
+  if (!bundle.report.shouldReport) return null;
+  const report = pushReport(game, {
+    headline: bundle.report.headline,
+    reportText: bundle.report.reportText,
+    advisorLine: bundle.report.advisorLine,
+    knowledgeHint: bundle.report.knowledgeHint,
+    eventType: bundle.eventType
+  });
+  bumpStateVersion(game);
+  return report;
+}
+
 export const useGameStore = create<GameStore>((set, get) => {
-  const launchDecisionCycle = (
+  const launchFrenchCycle = (
     snapshotState: GameState,
     commands: PlayerCommandIntent[],
     recentEvents: string[],
-    tone: ReportTone,
     sessionId: number
   ) => {
-    set(() => ({
-      isDecisionPending: true,
-      aiStatusText: decisionStatusText(commands)
-    }));
-
-    void resolveDecisionBundle(snapshotState, commands, recentEvents)
+    void resolveFrenchCommandBundle(snapshotState, commands, recentEvents)
       .then((bundle) => {
         const current = get();
         if (current.sessionId !== sessionId) return;
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+          const game = cloneAndClampState(prev.game);
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "french");
+          if (isAgentResultStale(game, bundle.sourceGameTimeMinutes, bundle.sourceStateVersion)) {
+            appendStaleResultReport(game, "FrenchCommandParser", bundle.sourceGameTimeMinutes);
+            return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
+          }
+          const events = applyFrenchOrderBundleToGame(game, bundle);
+          return {
+            game: { ...game, pendingAgentState },
+            recentEvents: mergeRecentEvents(prev.recentEvents, events),
+            aiStatusText: deriveAiStatusText(pendingAgentState)
+          };
+        });
+      })
+      .catch((error) => {
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+          const game = cloneAndClampState(prev.game);
+          appendFallbackReport(game, error instanceof Error ? error.message : String(error));
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "french");
+          return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
+        });
+      });
+  };
 
+  const launchGermanCycle = (snapshotState: GameState, recentEvents: string[], sessionId: number) => {
+    void resolveGermanIntentBundle(snapshotState, recentEvents)
+      .then((bundle) => {
+        const current = get();
+        if (current.sessionId !== sessionId) return;
         let auditLines: string[] = [];
         set((prev) => {
           if (prev.sessionId !== sessionId) return prev;
-
           const game = cloneAndClampState(prev.game);
-          const applied = applyDecisionBundleToGame(game, bundle);
-          const liveEvents = applied.events;
-          auditLines = buildAuditLinesFromPublicEvents(game, applied.publicEvents);
-
-          const mergedRecentEvents = mergeRecentEvents(prev.recentEvents, liveEvents);
-          const ended = game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
-          if (ended) {
-            game.gameEnded = true;
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "german");
+          if (isAgentResultStale(game, bundle.sourceGameTimeMinutes, bundle.sourceStateVersion)) {
+            appendStaleResultReport(game, "GermanCommander", bundle.sourceGameTimeMinutes);
+            return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
           }
-
+          const applied = applyGermanIntentBundleToGame(game, bundle);
+          auditLines = buildAuditLinesFromPublicEvents(game, applied.publicEvents);
           return {
-            game,
-            recentEvents: mergedRecentEvents,
-            ending: ended ? resolveEnding(game) : prev.ending,
-            aiStatusText: null,
-            isDecisionPending: false
+            game: { ...game, pendingAgentState },
+            recentEvents: mergeRecentEvents(prev.recentEvents, applied.events),
+            aiStatusText: deriveAiStatusText(pendingAgentState)
           };
         });
         void postActionAuditLines(auditLines).catch(() => undefined);
       })
       .catch((error) => {
-        const current = get();
-        if (current.sessionId !== sessionId) return;
-
         set((prev) => {
           if (prev.sessionId !== sessionId) return prev;
-
           const game = cloneAndClampState(prev.game);
           appendFallbackReport(game, error instanceof Error ? error.message : String(error));
-          return {
-            game,
-            aiStatusText: null,
-            isDecisionPending: false
-          };
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "german");
+          return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
         });
       });
   };
 
-  const launchEnvironmentalCycle = (
+  const launchDirectorCycle = (
     snapshotState: GameState,
-    combat: ReturnType<typeof resolveCombatStep>[number],
-    tone: ReportTone,
-    sessionId: number
+    recentEvents: string[],
+    sessionId: number,
+    eventType: "periodic" | "combat" | "crisis" | "movement" | "logistics",
+    combatContext?: { nodeId: MapNodeId; alliedLoss: number; germanLoss: number }
   ) => {
-    void resolveEnvironmentalBundle(snapshotState, combat, tone)
+    void resolveDirectorBundle(snapshotState, recentEvents, eventType, combatContext)
       .then((bundle) => {
         const current = get();
         if (current.sessionId !== sessionId) return;
-
+        let auditLines: string[] = [];
         set((prev) => {
-          if (prev.sessionId !== sessionId || !bundle.output) return prev;
-
+          if (prev.sessionId !== sessionId) return prev;
           const game = cloneAndClampState(prev.game);
-          applyEnvironmentalBundleToGame(game, bundle);
-
-          return { game };
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "director");
+          if (isAgentResultStale(game, bundle.sourceGameTimeMinutes, bundle.sourceStateVersion)) {
+            appendStaleResultReport(game, "Director", bundle.sourceGameTimeMinutes);
+            return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
+          }
+          const applied = applyDirectorBundleToGame(game, bundle);
+          auditLines = buildAuditLinesFromPublicEvents(game, applied.publicEvents);
+          return {
+            game: { ...game, pendingAgentState },
+            recentEvents: mergeRecentEvents(prev.recentEvents, applied.events),
+            aiStatusText: deriveAiStatusText(pendingAgentState)
+          };
         });
+        void postActionAuditLines(auditLines).catch(() => undefined);
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+          const game = cloneAndClampState(prev.game);
+          appendFallbackReport(game, error instanceof Error ? error.message : String(error));
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "director");
+          return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
+        });
+      });
   };
 
   const launchReportCycle = (
@@ -626,19 +639,33 @@ export const useGameStore = create<GameStore>((set, get) => {
     void resolveReportBundle(snapshotState, publicEvents, tone)
       .then((bundle) => {
         const current = get();
-        if (current.sessionId !== sessionId || !bundle.report) return;
-
+        if (current.sessionId !== sessionId) return;
         set((prev) => {
           if (prev.sessionId !== sessionId) return prev;
-
           const game = cloneAndClampState(prev.game);
-          if (!bundle.report) return prev;
-          applyReportBundleToGame(game, bundle);
-
-          return { game };
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "reporter");
+          if (isAgentResultStale(game, bundle.sourceGameTimeMinutes, bundle.sourceStateVersion)) {
+            appendStaleResultReport(game, "Reporter", bundle.sourceGameTimeMinutes);
+            return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
+          }
+          const report = applyReportBundleToGame(game, bundle);
+          return {
+            game: { ...game, pendingAgentState },
+            activeReportModal: report ?? prev.activeReportModal,
+            isPaused: report ? true : prev.isPaused,
+            aiStatusText: deriveAiStatusText(pendingAgentState)
+          };
         });
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        set((prev) => {
+          if (prev.sessionId !== sessionId) return prev;
+          const game = cloneAndClampState(prev.game);
+          appendFallbackReport(game, error instanceof Error ? error.message : String(error));
+          const pendingAgentState = markAgentResolved(prev.game.pendingAgentState, "reporter");
+          return { game: { ...game, pendingAgentState }, aiStatusText: deriveAiStatusText(pendingAgentState) };
+        });
+      });
   };
 
   return {
@@ -654,16 +681,12 @@ export const useGameStore = create<GameStore>((set, get) => {
     isTickRunning: false,
     reportTone: "staff_report",
     aiStatusText: null,
-    isDecisionPending: false,
+    activeReportModal: null,
     sessionId: 1,
 
     enqueueCommand: (text) => {
       const trimmed = text.trim().slice(0, 160);
-      if (!trimmed) return;
-
-      const state = get();
-      if (state.ending) return;
-
+      if (!trimmed || get().ending) return;
       set((prev) => ({
         pendingCommands: [
           ...prev.pendingCommands,
@@ -684,207 +707,118 @@ export const useGameStore = create<GameStore>((set, get) => {
       try {
         const minutes = gameMinutesFromRealSeconds(realSecondsElapsed, get().speedLevel);
 
-        if (GAME_CONFIG.aiExecutionMode === "sync") {
-          const snapshot = get();
-          const game = cloneAndClampState(snapshot.game);
-          const loopState = { ...snapshot.loopState };
-          let recentEvents = [...snapshot.recentEvents];
-          let pendingCommands = snapshot.pendingCommands;
-
-          if (snapshot.selectedNodeId) {
-            maybeDiscoverParisTransport(game, snapshot.selectedNodeId);
-          }
-
-          loopState.simAccumulatorMinutes += minutes;
-          loopState.decisionAccumulatorMinutes += minutes;
-          loopState.combatAccumulatorMinutes += minutes;
-          loopState.reportAccumulatorMinutes += minutes;
-
-          while (loopState.simAccumulatorMinutes >= SIM_STEP_GAME_MINUTES && !game.gameEnded) {
-            loopState.simAccumulatorMinutes -= SIM_STEP_GAME_MINUTES;
-
-            const simPublicEvents = runSimStep(game);
-            const stepEvents = simPublicEvents.map((event) => event.resultSummary);
-            let mergedPublicEvents: PublicEvent[] = [...simPublicEvents];
-
-            const orderProgress = processOrders(game);
-            stepEvents.push(...orderProgress.events);
-            mergedPublicEvents = [...mergedPublicEvents, ...orderProgress.publicEvents];
-            void postActionAuditLines(buildAuditLinesFromPublicEvents(game, orderProgress.publicEvents)).catch(
-              () => undefined
-            );
-
-            if (loopState.combatAccumulatorMinutes >= COMBAT_STEP_GAME_MINUTES) {
-              loopState.combatAccumulatorMinutes -= COMBAT_STEP_GAME_MINUTES;
-              const combat = runCombatStep(game);
-              stepEvents.push(...combat.events);
-              mergedPublicEvents = [...mergedPublicEvents, ...combat.publicEvents];
-
-              for (const majorCombat of combat.majorCombats) {
-                const envBundle = await resolveEnvironmentalBundle(game, majorCombat, snapshot.reportTone);
-                applyEnvironmentalBundleToGame(game, envBundle);
-              }
-            }
-
-            const majorEvent = mergedPublicEvents.some((event) => {
-              const kind = event.type.toLowerCase();
-              return (
-                kind.includes("combat") ||
-                kind.includes("government") ||
-                kind.includes("urban") ||
-                kind.includes("environmental")
-              );
-            });
-
-            if (
-              mergedPublicEvents.length > 0 &&
-              (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES || majorEvent)
-            ) {
-              if (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES) {
-                loopState.reportAccumulatorMinutes -= REPORT_MIN_INTERVAL_GAME_MINUTES;
-              } else {
-                loopState.reportAccumulatorMinutes = 0;
-              }
-
-              const reportBundle = await resolveReportBundle(game, mergedPublicEvents, snapshot.reportTone);
-              applyReportBundleToGame(game, reportBundle);
-            }
-
-            recentEvents = mergeRecentEvents(recentEvents, stepEvents);
-
-            if (game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game)) {
-              game.gameEnded = true;
-              break;
-            }
-          }
-
-          let aiStatusText: string | null = snapshot.aiStatusText;
-          let isDecisionPending = snapshot.isDecisionPending;
-
-          if (loopState.decisionAccumulatorMinutes >= DECISION_STEP_GAME_MINUTES && !snapshot.isDecisionPending) {
-            loopState.decisionAccumulatorMinutes -= DECISION_STEP_GAME_MINUTES;
-            const commandsForDecision = [...pendingCommands];
-            pendingCommands = [];
-            aiStatusText = decisionStatusText(commandsForDecision);
-            isDecisionPending = true;
-
-            try {
-              const bundle = await resolveDecisionBundle(game, commandsForDecision, recentEvents);
-              const applied = applyDecisionBundleToGame(game, bundle);
-              void postActionAuditLines(buildAuditLinesFromPublicEvents(game, applied.publicEvents)).catch(
-                () => undefined
-              );
-              recentEvents = mergeRecentEvents(recentEvents, applied.events);
-            } catch (error) {
-              appendFallbackReport(game, error instanceof Error ? error.message : String(error));
-            }
-
-            aiStatusText = null;
-            isDecisionPending = false;
-          }
-
-          const ended = game.gameEnded || game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
-          if (ended) {
-            game.gameEnded = true;
-          }
-
-          set((prev) => {
-            if (prev.sessionId !== snapshot.sessionId) return { isTickRunning: false };
-            return {
-              game,
-              loopState,
-              recentEvents,
-              pendingCommands,
-              isTickRunning: false,
-              ending: ended ? resolveEnding(game) : prev.ending,
-              aiStatusText,
-              isDecisionPending
-            };
-          });
-          return;
-        }
-
         set((prev) => {
           const game = cloneAndClampState(prev.game);
           const loopState = { ...prev.loopState };
           let recentEvents = [...prev.recentEvents];
+          let latestPublicEvents: PublicEvent[] = [];
 
           if (prev.selectedNodeId) {
             maybeDiscoverParisTransport(game, prev.selectedNodeId);
           }
 
           loopState.simAccumulatorMinutes += minutes;
-          loopState.decisionAccumulatorMinutes += minutes;
           loopState.combatAccumulatorMinutes += minutes;
           loopState.reportAccumulatorMinutes += minutes;
 
           while (loopState.simAccumulatorMinutes >= SIM_STEP_GAME_MINUTES && !game.gameEnded) {
             loopState.simAccumulatorMinutes -= SIM_STEP_GAME_MINUTES;
-
             const simPublicEvents = runSimStep(game);
             const stepEvents = simPublicEvents.map((event) => event.resultSummary);
-            let mergedPublicEvents: PublicEvent[] = [...simPublicEvents];
+            latestPublicEvents = [...simPublicEvents];
 
-            const orderProgress = processOrders(game);
-            stepEvents.push(...orderProgress.events);
-            mergedPublicEvents = [...mergedPublicEvents, ...orderProgress.publicEvents];
-            void postActionAuditLines(buildAuditLinesFromPublicEvents(game, orderProgress.publicEvents)).catch(
-              () => undefined
-            );
+            const orderOutcome = processOrders(game);
+            stepEvents.push(...orderOutcome.events);
+            latestPublicEvents = [...latestPublicEvents, ...orderOutcome.publicEvents];
+            void postActionAuditLines(buildAuditLinesFromPublicEvents(game, orderOutcome.publicEvents)).catch(() => undefined);
 
             if (loopState.combatAccumulatorMinutes >= COMBAT_STEP_GAME_MINUTES) {
               loopState.combatAccumulatorMinutes -= COMBAT_STEP_GAME_MINUTES;
               const combat = runCombatStep(game);
               stepEvents.push(...combat.events);
-              mergedPublicEvents = [...mergedPublicEvents, ...combat.publicEvents];
+              latestPublicEvents = [...latestPublicEvents, ...combat.publicEvents];
 
-              for (const majorCombat of combat.majorCombats) {
-                launchEnvironmentalCycle(game, majorCombat, prev.reportTone, prev.sessionId);
+              if (combat.majorCombats.length > 0 && !game.pendingAgentState.director.pending) {
+                const majorCombat = combat.majorCombats[0];
+                game.pendingAgentState = markAgentPending(game.pendingAgentState, "director", game.currentTimeMinutes);
+                launchDirectorCycle(
+                  game,
+                  recentEvents,
+                  prev.sessionId,
+                  "combat",
+                  {
+                    nodeId: majorCombat.nodeId,
+                    alliedLoss: majorCombat.alliedLoss,
+                    germanLoss: majorCombat.germanLoss
+                  }
+                );
               }
-            }
-
-            const majorEvent = mergedPublicEvents.some((event) => {
-              const kind = event.type.toLowerCase();
-              return (
-                kind.includes("combat") ||
-                kind.includes("government") ||
-                kind.includes("urban") ||
-                kind.includes("environmental")
-              );
-            });
-
-            if (
-              mergedPublicEvents.length > 0 &&
-              (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES || majorEvent)
-            ) {
-              if (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES) {
-                loopState.reportAccumulatorMinutes -= REPORT_MIN_INTERVAL_GAME_MINUTES;
-              } else {
-                loopState.reportAccumulatorMinutes = 0;
-              }
-              launchReportCycle(game, mergedPublicEvents, prev.reportTone, prev.sessionId);
             }
 
             recentEvents = mergeRecentEvents(recentEvents, stepEvents);
-
             if (game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game)) {
               game.gameEnded = true;
               break;
             }
           }
 
-          let pendingCommands = prev.pendingCommands;
-          let aiStatusText = prev.aiStatusText;
-          let isDecisionPending = prev.isDecisionPending;
+          const transmission = calculateTransmissionEfficiency({
+            parisThreat: game.parisThreat,
+            commandCohesion: game.commandCohesion,
+            cityStability: game.cityStability,
+            politicalPressure: game.politicalPressure,
+            railwayCongestion: game.railwayCongestion
+          });
 
-          if (loopState.decisionAccumulatorMinutes >= DECISION_STEP_GAME_MINUTES && !prev.isDecisionPending) {
-            loopState.decisionAccumulatorMinutes -= DECISION_STEP_GAME_MINUTES;
+          let pendingCommands = prev.pendingCommands;
+          if (
+            pendingCommands.length > 0 &&
+            !game.pendingAgentState.french.pending &&
+            game.currentTimeMinutes - game.pendingAgentState.french.lastRunMinutes >=
+              transmission.frenchCommandProcessingIntervalMinutes
+          ) {
             const commandsForDecision = [...pendingCommands];
             pendingCommands = [];
-            aiStatusText = decisionStatusText(commandsForDecision);
-            isDecisionPending = true;
-            launchDecisionCycle(game, commandsForDecision, recentEvents, prev.reportTone, prev.sessionId);
+            game.pendingAgentState = markAgentPending(game.pendingAgentState, "french", game.currentTimeMinutes);
+            launchFrenchCycle(game, commandsForDecision, recentEvents, prev.sessionId);
           }
+
+          if (
+            !game.pendingAgentState.german.pending &&
+            game.currentTimeMinutes - game.pendingAgentState.german.lastRunMinutes >= transmission.germanDecisionIntervalMinutes
+          ) {
+            game.pendingAgentState = markAgentPending(game.pendingAgentState, "german", game.currentTimeMinutes);
+            launchGermanCycle(game, recentEvents, prev.sessionId);
+          }
+
+          const shouldRunDirectorPeriodically =
+            game.currentTimeMinutes - game.pendingAgentState.director.lastRunMinutes >= GAME_CONFIG.directorCycleMinutes;
+          const shouldRunDirectorForCrisis = maybeNeedsDirectorDecision(game, recentEvents);
+          if (!game.pendingAgentState.director.pending && (shouldRunDirectorPeriodically || shouldRunDirectorForCrisis)) {
+            game.pendingAgentState = markAgentPending(game.pendingAgentState, "director", game.currentTimeMinutes);
+            launchDirectorCycle(game, recentEvents, prev.sessionId, shouldRunDirectorForCrisis ? "crisis" : "periodic");
+          }
+
+          if (
+            !game.pendingAgentState.reporter.pending &&
+            game.currentTimeMinutes - game.pendingAgentState.reporter.lastRunMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES
+          ) {
+            const publicEvents =
+              latestPublicEvents.length > 0
+                ? latestPublicEvents
+                : [
+                    {
+                      type: "periodic",
+                      resultSummary: `Paris threat ${Math.round(game.parisThreat)}; cohesion ${Math.round(game.commandCohesion)}; rail congestion ${Math.round(game.railwayCongestion)}.`
+                    }
+                  ];
+            game.pendingAgentState = markAgentPending(game.pendingAgentState, "reporter", game.currentTimeMinutes);
+            loopState.reportAccumulatorMinutes = 0;
+            launchReportCycle(game, publicEvents, prev.reportTone, prev.sessionId);
+          }
+
+          const ended = game.gameEnded || game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
+          if (ended) game.gameEnded = true;
 
           return {
             game,
@@ -892,9 +826,8 @@ export const useGameStore = create<GameStore>((set, get) => {
             recentEvents,
             pendingCommands,
             isTickRunning: false,
-            ending: game.gameEnded ? resolveEnding(game) : prev.ending,
-            aiStatusText,
-            isDecisionPending
+            ending: ended ? resolveEnding(game) : prev.ending,
+            aiStatusText: deriveAiStatusText(game.pendingAgentState)
           };
         });
       } catch (error) {
@@ -903,38 +836,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       }
     },
 
-    togglePause: () => {
-      set((prev) => ({ isPaused: !prev.isPaused }));
-    },
-
-    decreaseSpeed: () => {
-      set((prev) => ({ speedLevel: nextSpeed(prev.speedLevel, -1) }));
-    },
-
-    increaseSpeed: () => {
-      set((prev) => ({ speedLevel: nextSpeed(prev.speedLevel, 1) }));
-    },
-
-    setReportTone: (tone) => {
-      set(() => ({ reportTone: tone }));
-    },
-
-    selectNode: (nodeId) => {
-      set(() => ({ selectedNodeId: nodeId }));
-    },
-
-    closeNode: () => {
-      set(() => ({ selectedNodeId: null }));
-    },
-
-    selectUnit: (unitId) => {
-      set(() => ({ selectedUnitId: unitId }));
-    },
+    togglePause: () => set((prev) => ({ isPaused: !prev.isPaused })),
+    decreaseSpeed: () => set((prev) => ({ speedLevel: nextSpeed(prev.speedLevel, -1) })),
+    increaseSpeed: () => set((prev) => ({ speedLevel: nextSpeed(prev.speedLevel, 1) })),
+    setReportTone: (tone) => set(() => ({ reportTone: tone })),
+    selectNode: (nodeId) => set(() => ({ selectedNodeId: nodeId })),
+    closeNode: () => set(() => ({ selectedNodeId: null })),
+    selectUnit: (unitId) => set(() => ({ selectedUnitId: unitId })),
 
     mobilizeCityVehicles: () => {
-      const state = get();
-      if (state.ending) return;
-
+      if (get().ending) return;
       set((prev) => ({
         pendingCommands: [
           ...prev.pendingCommands,
@@ -950,17 +861,22 @@ export const useGameStore = create<GameStore>((set, get) => {
     dispatchCityForces: () => {
       const state = get();
       if (state.ending || !state.selectedNodeId) return;
-
-      const cmd = `Redeploy nearest reserve toward ${state.selectedNodeId}.`;
       set((prev) => ({
         pendingCommands: [
           ...prev.pendingCommands,
           {
-            rawText: cmd,
+            rawText: `Redeploy nearest reserve toward ${state.selectedNodeId}.`,
             selectedNodeId: prev.selectedNodeId ?? undefined,
             selectedUnitId: prev.selectedUnitId ?? undefined
           }
         ]
+      }));
+    },
+
+    dismissActiveReport: () => {
+      set((prev) => ({
+        activeReportModal: null,
+        isPaused: false
       }));
     },
 
@@ -978,7 +894,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         isTickRunning: false,
         reportTone: "staff_report",
         aiStatusText: null,
-        isDecisionPending: false,
+        activeReportModal: null,
         sessionId: prev.sessionId + 1
       }));
     },
@@ -988,6 +904,7 @@ export const useGameStore = create<GameStore>((set, get) => {
       set((prev) => {
         const game = cloneAndClampState(prev.game);
         game.currentTimeMinutes += Math.round(hours * 60);
+        bumpStateVersion(game);
         return { game };
       });
     },
@@ -995,14 +912,17 @@ export const useGameStore = create<GameStore>((set, get) => {
     demoPushReport: (headline, reportText, advisorLine, eventType = "demo") => {
       set((prev) => {
         const game = cloneAndClampState(prev.game);
-        pushReport(game, {
+        const report = pushReport(game, {
           headline: headline.slice(0, 120),
           reportText: reportText.slice(0, 450),
           advisorLine: advisorLine?.slice(0, 180),
           eventType
         });
+        bumpStateVersion(game);
         return {
           game,
+          activeReportModal: report,
+          isPaused: true,
           recentEvents: mergeRecentEvents(prev.recentEvents, [`${headline}: ${reportText}`])
         };
       });
@@ -1013,7 +933,6 @@ export const useGameStore = create<GameStore>((set, get) => {
         const game = cloneAndClampState(prev.game);
         const unit = game.units.find((item) => item.id === unitId);
         if (!unit) return prev;
-
         unit.nodeId = nodeId;
         unit.movingTo = undefined;
         unit.travelProgress = undefined;
@@ -1021,7 +940,7 @@ export const useGameStore = create<GameStore>((set, get) => {
         unit.stance = overrides?.stance ?? unit.stance;
         unit.movementMode = undefined;
         Object.assign(unit, overrides ?? {});
-
+        bumpStateVersion(game);
         return { game };
       });
     },
@@ -1035,17 +954,16 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
 
     demoSetAiStatus: (status, pending = false) => {
-      set(() => ({
+      set((prev) => ({
         aiStatusText: status,
-        isDecisionPending: pending
+        game: {
+          ...prev.game,
+          pendingAgentState: pending ? markAgentPending(prev.game.pendingAgentState, "director", prev.game.currentTimeMinutes) : createPendingAgentState()
+        }
       }));
     },
 
-    demoClearPendingCommands: () => {
-      set(() => ({
-        pendingCommands: []
-      }));
-    }
+    demoClearPendingCommands: () => set(() => ({ pendingCommands: [] }))
   };
 });
 

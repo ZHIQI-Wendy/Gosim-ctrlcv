@@ -1,4 +1,5 @@
 import {
+  DirectorOutput,
   AllowedAction,
   EnvironmentalAdjudicatorOutput,
   FrenchCommandParserOutput,
@@ -59,6 +60,14 @@ export const ENV_AFFECTED_SIDE = ["allied", "german", "both", "none"] as const;
 export const CONTRACT_SEVERITY = ["minor", "medium", "major"] as const;
 
 export const GOVERNMENT_ACTIONS = ["NO_ACTION", "EMERGENCY_DIRECTIVE"] as const;
+export const DIRECTOR_ACTIONS = [
+  "NO_ACTION",
+  "EMERGENCY_DIRECTIVE",
+  "COMBAT_FRICTION",
+  "LOGISTICS_SHOCK",
+  "MORALE_SWING",
+  "CITY_RESPONSE"
+] as const;
 
 export const COMMON_CONFIDENCE_BOUNDS: NumericBound = { min: 0, max: 1 };
 export const ENVIRONMENTAL_NUMERIC_BOUNDS = {
@@ -104,7 +113,9 @@ export const FRENCH_COMMAND_VALID_EXAMPLE: FrenchCommandParserOutput = {
   historicalValidity: "high",
   ambiguity: "low",
   mappedOrderText: "Redeploy reserve toward Meaux to reinforce the approach.",
-  explanation: "Clear movement order with explicit destination and unit."
+  explanation: "Clear movement order with explicit destination and unit.",
+  sourceGameTimeMinutes: 120,
+  sourceStateVersion: 1
 };
 
 export const GERMAN_COMMANDER_VALID_EXAMPLE: GermanAgentOutput = {
@@ -119,7 +130,9 @@ export const GERMAN_COMMANDER_VALID_EXAMPLE: GermanAgentOutput = {
     flankRisk: 5
   },
   confidence: 0.67,
-  rationale: "Local pressure is favorable and momentum supports concentrated action."
+  rationale: "Local pressure is favorable and momentum supports concentrated action.",
+  sourceGameTimeMinutes: 120,
+  sourceStateVersion: 1
 };
 
 export const ENVIRONMENTAL_VALID_EXAMPLE: EnvironmentalAdjudicatorOutput = {
@@ -135,7 +148,9 @@ export const ENVIRONMENTAL_VALID_EXAMPLE: EnvironmentalAdjudicatorOutput = {
   },
   severity: "medium",
   durationMinutes: 30,
-  rationale: "Weather and congestion reduced operational coherence for both sides."
+  rationale: "Weather and congestion reduced operational coherence for both sides.",
+  sourceGameTimeMinutes: 120,
+  sourceStateVersion: 1
 };
 
 export const GOVERNMENT_VALID_EXAMPLE: GovernmentDecisionOutput = {
@@ -152,7 +167,32 @@ export const GOVERNMENT_VALID_EXAMPLE: GovernmentDecisionOutput = {
   durationMinutes: 120,
   severity: "medium",
   confidence: 0.62,
-  privateRationale: "Threat and political pressure crossed intervention threshold."
+  privateRationale: "Threat and political pressure crossed intervention threshold.",
+  sourceGameTimeMinutes: 120,
+  sourceStateVersion: 1
+};
+
+export const DIRECTOR_VALID_EXAMPLE: DirectorOutput = {
+  trigger: true,
+  action: "COMBAT_FRICTION",
+  publicMessage: "Director applied local friction after a major combat event.",
+  stateDelta: {
+    cityStability: -1,
+    politicalPressure: 2,
+    commandCohesion: -1,
+    governmentCollapseRisk: 1,
+    alliedOperationalMomentum: -1,
+    germanOperationalMomentum: 1,
+    railwayCongestion: 4,
+    shortTermRedeployDelayMinutes: 10
+  },
+  unitDelta: [],
+  nodeDelta: [],
+  severity: "medium",
+  confidence: 0.64,
+  privateRationale: "Director combined political and environmental side effects without replacing deterministic combat resolution.",
+  sourceGameTimeMinutes: 120,
+  sourceStateVersion: 1
 };
 
 export const REPORT_VALID_EXAMPLE: ReportGeneratorOutput = {
@@ -160,12 +200,16 @@ export const REPORT_VALID_EXAMPLE: ReportGeneratorOutput = {
   reportText: "Heavy exchange near Marne crossings. Paris threat remains elevated but contained.",
   advisorLine: "Preserve rail flexibility and avoid fragmented redeploy orders.",
   knowledgeHint: "Crossing sectors magnify fatigue and delay effects under pressure.",
-  privateRationale: "Framed publicly without hidden-state references."
+  privateRationale: "Framed publicly without hidden-state references.",
+  shouldReport: true,
+  sourceGameTimeMinutes: 120,
+  sourceStateVersion: 1
 };
 
 export const AI_OUTPUT_CONTRACTS: {
   frenchCommandParser: AIOutputContract<FrenchCommandParserOutput>;
   germanCommander: AIOutputContract<GermanAgentOutput>;
+  director: AIOutputContract<DirectorOutput>;
   environmentalAdjudicator: AIOutputContract<EnvironmentalAdjudicatorOutput>;
   governmentDecision: AIOutputContract<GovernmentDecisionOutput>;
   reportGenerator: AIOutputContract<ReportGeneratorOutput>;
@@ -182,7 +226,9 @@ export const AI_OUTPUT_CONTRACTS: {
       "historicalValidity",
       "ambiguity",
       "mappedOrderText",
-      "explanation"
+      "explanation",
+      "sourceGameTimeMinutes",
+      "sourceStateVersion"
     ],
     optionalFields: [],
     enums: {
@@ -213,7 +259,9 @@ export const AI_OUTPUT_CONTRACTS: {
       "intensity",
       "expectedEffect",
       "confidence",
-      "rationale"
+      "rationale",
+      "sourceGameTimeMinutes",
+      "sourceStateVersion"
     ],
     optionalFields: [],
     enums: {
@@ -235,6 +283,38 @@ export const AI_OUTPUT_CONTRACTS: {
       reason: "Action enum, unknown unitId, and confidence bounds are invalid."
     }
   },
+  director: {
+    subsystem: "Director",
+    requiredFields: [
+      "trigger",
+      "action",
+      "publicMessage",
+      "stateDelta",
+      "unitDelta",
+      "nodeDelta",
+      "severity",
+      "confidence",
+      "privateRationale",
+      "sourceGameTimeMinutes",
+      "sourceStateVersion"
+    ],
+    optionalFields: [],
+    enums: {
+      action: DIRECTOR_ACTIONS,
+      severity: CONTRACT_SEVERITY
+    },
+    numericBounds: {
+      confidence: COMMON_CONFIDENCE_BOUNDS
+    },
+    validExample: DIRECTOR_VALID_EXAMPLE,
+    invalidExample: {
+      example: {
+        action: "REPLACE_COMBAT_SYSTEM",
+        confidence: 2
+      },
+      reason: "Director cannot replace deterministic systems or exceed confidence bounds."
+    }
+  },
   environmentalAdjudicator: {
     subsystem: "Environmental Adjudicator",
     requiredFields: [
@@ -244,7 +324,9 @@ export const AI_OUTPUT_CONTRACTS: {
       "numericModifiers",
       "severity",
       "durationMinutes",
-      "rationale"
+      "rationale",
+      "sourceGameTimeMinutes",
+      "sourceStateVersion"
     ],
     optionalFields: [],
     enums: {
@@ -311,7 +393,15 @@ export const AI_OUTPUT_CONTRACTS: {
   },
   reportGenerator: {
     subsystem: "Report Generator",
-    requiredFields: ["headline", "reportText", "advisorLine", "privateRationale"],
+    requiredFields: [
+      "headline",
+      "reportText",
+      "advisorLine",
+      "privateRationale",
+      "shouldReport",
+      "sourceGameTimeMinutes",
+      "sourceStateVersion"
+    ],
     optionalFields: ["knowledgeHint"],
     enums: {},
     numericBounds: {},
@@ -376,6 +466,15 @@ function hasNullableString(field: string, value: unknown, errors: string[]): voi
   }
 }
 
+function hasSourceMetadata(value: unknown, errors: string[]): void {
+  if (typeof (value as any)?.sourceGameTimeMinutes !== "number") {
+    errors.push("sourceGameTimeMinutes must be a non-negative number");
+  }
+  if (typeof (value as any)?.sourceStateVersion !== "number") {
+    errors.push("sourceStateVersion must be a non-negative number");
+  }
+}
+
 function okOrError<T>(errors: string[], value: unknown): ContractValidationResult<T> {
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, value: value as T };
@@ -406,7 +505,25 @@ export function validateFrenchCommandParserContract(
     hasBoolean("constraints.prioritizeSpeed", value.constraints.prioritizeSpeed, errors);
   }
 
+  hasSourceMetadata(value, errors);
   return okOrError<FrenchCommandParserOutput>(errors, value);
+}
+
+export function validateDirectorContract(
+  value: unknown
+): ContractValidationResult<DirectorOutput> {
+  const errors: string[] = [];
+  if (!isRecord(value)) return { ok: false, errors: ["Output must be an object"] };
+
+  hasBoolean("trigger", value.trigger, errors);
+  hasEnumValue("action", value.action, DIRECTOR_ACTIONS, errors);
+  hasString("publicMessage", value.publicMessage, errors);
+  hasEnumValue("severity", value.severity, CONTRACT_SEVERITY, errors);
+  hasNumberInRange("confidence", value.confidence, 0, 1, errors);
+  hasString("privateRationale", value.privateRationale, errors);
+  hasSourceMetadata(value, errors);
+
+  return okOrError<DirectorOutput>(errors, value);
 }
 
 export function validateGermanCommanderContract(
@@ -431,6 +548,7 @@ export function validateGermanCommanderContract(
     if (typeof value.expectedEffect.flankRisk !== "number") errors.push("expectedEffect.flankRisk must be number");
   }
 
+  hasSourceMetadata(value, errors);
   return okOrError<GermanAgentOutput>(errors, value);
 }
 
@@ -493,6 +611,7 @@ export function validateEnvironmentalAdjudicatorContract(
     );
   }
 
+  hasSourceMetadata(value, errors);
   return okOrError<EnvironmentalAdjudicatorOutput>(errors, value);
 }
 
@@ -562,6 +681,7 @@ export function validateGovernmentDecisionContract(
     );
   }
 
+  hasSourceMetadata(value, errors);
   return okOrError<GovernmentDecisionOutput>(errors, value);
 }
 
@@ -575,11 +695,12 @@ export function validateReportGeneratorContract(
   hasString("reportText", value.reportText, errors);
   hasString("advisorLine", value.advisorLine, errors);
   hasString("privateRationale", value.privateRationale, errors);
+  hasBoolean("shouldReport", value.shouldReport, errors);
 
   if (value.knowledgeHint !== undefined && typeof value.knowledgeHint !== "string") {
     errors.push("knowledgeHint must be string when provided");
   }
 
+  hasSourceMetadata(value, errors);
   return okOrError<ReportGeneratorOutput>(errors, value);
 }
-

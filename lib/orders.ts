@@ -1,5 +1,6 @@
 import { getMovementOptions } from "@/lib/movement";
 import { localGermanPowerRatio } from "@/lib/parisThreat";
+import { calculateTransmissionEfficiency as calculateTransmissionProfile } from "@/lib/ai/transmissionEfficiency";
 import { clamp, makeId } from "@/lib/utils";
 import { validateNodeId, validateUnitId } from "@/lib/validators";
 import {
@@ -15,24 +16,12 @@ import {
 
 export type PublicEvent = ReportGeneratorInput["latestEvents"][number];
 
-export function calculateTransmissionEfficiency(state: GameState): number {
-  const command = state.commandCohesion / 100;
-  const stability = state.cityStability / 100;
-  const pressure = 1 - state.politicalPressure / 100;
-  const threat = 1 - state.parisThreat / 100;
-  const rail = 1 - state.railwayCongestion / 100;
-
-  const weighted = command * 0.28 + stability * 0.2 + pressure * 0.18 + threat * 0.18 + rail * 0.16;
-  return clamp(0.45 + weighted, 0.35, 1.35);
-}
-
-function orderTiming(action: AllowedAction, transmissionEfficiency: number): { delayMinutes: number; durationMinutes: number } {
-  const efficiencyScale = clamp(transmissionEfficiency, 0.35, 1.35);
+function orderTiming(action: AllowedAction, orderTransmissionDelayMinutes: number): { delayMinutes: number; durationMinutes: number } {
   const baseDelay = action === "OPTIMIZE_RAIL" ? 30 : action === "REDEPLOY" ? 20 : 10;
   const baseDuration = action === "OPTIMIZE_RAIL" ? 90 : 0;
 
   return {
-    delayMinutes: Math.max(0, Math.round(baseDelay / efficiencyScale)),
+    delayMinutes: Math.max(0, baseDelay + orderTransmissionDelayMinutes),
     durationMinutes: baseDuration
   };
 }
@@ -42,7 +31,14 @@ export function createOrderFromParserOutput(
   currentTimeMinutes: number,
   state: GameState
 ): Order {
-  const timing = orderTiming(output.action, calculateTransmissionEfficiency(state));
+  const transmission = calculateTransmissionProfile({
+    parisThreat: state.parisThreat,
+    commandCohesion: state.commandCohesion,
+    cityStability: state.cityStability,
+    politicalPressure: state.politicalPressure,
+    railwayCongestion: state.railwayCongestion
+  });
+  const timing = orderTiming(output.action, transmission.orderTransmissionDelayMinutes);
   return {
     id: makeId("order"),
     action: output.action,

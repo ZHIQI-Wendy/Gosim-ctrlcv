@@ -10,6 +10,7 @@ import {DraggableWindow} from "@/components/DraggableWindow";
 import {EndingPanel} from "@/components/EndingPanel";
 import {MapCanvas} from "@/components/MapCanvas";
 import {BottomThreatBar, RightMetrics} from "@/components/TopStatusBar";
+import {GAME_CONFIG} from "@/lib/config/gameConfig";
 import {useGameStore} from "@/lib/gameState";
 import Image from "next/image";
 import JosephJoffre from "@/assets/img/JosephJoffre.png";
@@ -28,7 +29,7 @@ export default function Page() {
         selectedNodeId,
         pendingCommands,
         aiStatusText,
-        isDecisionPending,
+        activeReportModal,
         isPaused,
         speedLevel,
         runTick,
@@ -39,6 +40,7 @@ export default function Page() {
         selectNode,
         closeNode,
         mobilizeCityVehicles,
+        dismissActiveReport,
         reset
     } = useGameStore();
 
@@ -63,8 +65,13 @@ export default function Page() {
         selectNode(nodeId);
     };
 
+    const pendingAgents = Object.entries(game.pendingAgentState).filter(
+        ([name, agent]) => agent.pending && GAME_CONFIG.pendingEffectAgents.includes(name as typeof GAME_CONFIG.pendingEffectAgents[number])
+    );
+    const hasPendingAgents = pendingAgents.length > 0;
+
     return (
-        <main className={`viewport-frame ${isDecisionPending ? "is-pending" : ""}`}>
+        <main className={`viewport-frame ${hasPendingAgents || activeReportModal ? "is-pending" : ""}`}>
             <div className="war-room">
                 <MapCanvas game={game} selectedNode={selectedNodeId} onNodeSelect={handleNodeSelect}/>
 
@@ -121,14 +128,23 @@ export default function Page() {
 
                 <EndingPanel ending={ending} onReset={reset}/>
             </div>
-            {isDecisionPending && (
+            {hasPendingAgents && (
                 <div className="pending-overlay" aria-live="polite" aria-busy="true">
                     <div className="pending-card floating-panel">
                         <span className="decision-spinner" aria-hidden />
-                        <strong>Director agent pending</strong>
-                        <p>Waiting for synchronous LLM response.</p>
+                        <strong>Agents pending</strong>
+                        <p>{pendingAgents.map(([name]) => name).join(", ")}</p>
                     </div>
                 </div>
+            )}
+            {activeReportModal && (
+                <button className="pending-overlay" onClick={dismissActiveReport} type="button">
+                    <div className="pending-card floating-panel">
+                        <strong>{activeReportModal.headline}</strong>
+                        <p>{activeReportModal.reportText}</p>
+                        {activeReportModal.advisorLine ? <small>{activeReportModal.advisorLine}</small> : null}
+                    </div>
+                </button>
             )}
         </main>
     );

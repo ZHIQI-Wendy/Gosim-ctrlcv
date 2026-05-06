@@ -33,7 +33,9 @@ export function germanCommanderMock(input: GermanAgentInput): GermanAgentOutput 
         flankRisk: -14
       },
       confidence: 0.61,
-      rationale: "High flank risk favors regrouping toward aisne_road."
+      rationale: "High flank risk favors regrouping toward aisne_road.",
+      sourceGameTimeMinutes: input.currentTimeMinutes,
+      sourceStateVersion: 1
     };
   }
 
@@ -50,7 +52,9 @@ export function germanCommanderMock(input: GermanAgentInput): GermanAgentOutput 
         flankRisk: 5
       },
       confidence: 0.68,
-      rationale: "Momentum supports pressure against Paris approach routes."
+      rationale: "Momentum supports pressure against Paris approach routes.",
+      sourceGameTimeMinutes: input.currentTimeMinutes,
+      sourceStateVersion: 1
     };
   }
 
@@ -66,6 +70,8 @@ export function germanCommanderMock(input: GermanAgentInput): GermanAgentOutput 
       flankRisk: 3
     },
     confidence: 0.56,
-    rationale: "Advance while preserving operational coherence."
+    rationale: "Advance while preserving operational coherence.",
+    sourceGameTimeMinutes: input.currentTimeMinutes,
+    sourceStateVersion: 1
   };
 }

@@ -1,3 +1,18 @@
+// === AGENT ARCHITECTURE TYPES ===
+export type AgentStatus = "idle" | "pending" | "processing";
+
+export type AgentDecisionMetadata = {
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
+};
+
+export type PendingAgentState = {
+  french: { status: AgentStatus; lastRunMinutes: number; pending: boolean };
+  german: { status: AgentStatus; lastRunMinutes: number; pending: boolean };
+  director: { status: AgentStatus; lastRunMinutes: number; pending: boolean };
+  reporter: { status: AgentStatus; lastRunMinutes: number; pending: boolean };
+};
+
 export type Side = "allied" | "german";
 export type NodeControl = "allied" | "german" | "contested" | "neutral";
 
@@ -143,6 +158,7 @@ export type AIOrderContext = {
 
 export type GameState = {
   currentTimeMinutes: number;
+  stateVersion: number;
   gameEnded: boolean;
 
   commandCohesion: number;
@@ -183,6 +199,9 @@ export type GameState = {
   knowledgeCards: KnowledgeCard[];
 
   outcomeScores: OutcomeScores;
+
+  // Agent architecture state
+  pendingAgentState: PendingAgentState;
 };
 
 export type MovementOption = {
@@ -194,8 +213,87 @@ export type MovementOption = {
   nodePath?: MapNodeId[];
 };
 
+export type DirectorInput = {
+  currentTimeMinutes: number;
+  sourceStateVersion: number;
+  eventType: "periodic" | "combat" | "crisis" | "movement" | "logistics";
+  publicState: {
+    parisThreat: number;
+    cityStability: number;
+    politicalPressure: number;
+    commandCohesion: number;
+    railwayCongestion: number;
+    alliedOperationalMomentum: number;
+    germanOperationalMomentum: number;
+    observedFlankGap: number;
+  };
+  hiddenState: {
+    governmentCollapseRisk: number;
+    invalidCommandsInLast6Hours: number;
+    threatAbove95Minutes: number;
+    parisContestedMinutes: number;
+    flankGap: number;
+  };
+  combatContext?: {
+    nodeId: MapNodeId;
+    alliedLoss: number;
+    germanLoss: number;
+  };
+  activeOrders: AIOrderContext[];
+  recentOrders: AIOrderContext[];
+  recentEvents: string[];
+};
+
+export type DirectorUnitDelta = {
+  unitId: string;
+  strengthDeltaPct: number;
+  moraleDelta: number;
+  fatigueDelta: number;
+  supplyDelta: number;
+  cohesionDelta: number;
+  readinessDelta: number;
+};
+
+export type DirectorNodeDelta = {
+  nodeId: MapNodeId;
+  controlPressureDelta: number;
+  defenseValueDelta: number;
+  supplyValueDelta: number;
+  transportValueDelta: number;
+};
+
+export type DirectorOutput = {
+  trigger: boolean;
+  action:
+    | "NO_ACTION"
+    | "EMERGENCY_DIRECTIVE"
+    | "COMBAT_FRICTION"
+    | "LOGISTICS_SHOCK"
+    | "MORALE_SWING"
+    | "CITY_RESPONSE";
+  publicMessage: string;
+  stateDelta: {
+    cityStability: number;
+    politicalPressure: number;
+    commandCohesion: number;
+    governmentCollapseRisk: number;
+    alliedOperationalMomentum: number;
+    germanOperationalMomentum: number;
+    railwayCongestion: number;
+    shortTermRedeployDelayMinutes: number;
+  };
+  unitDelta: DirectorUnitDelta[];
+  nodeDelta: DirectorNodeDelta[];
+  severity: "minor" | "medium" | "major";
+  confidence: number;
+  privateRationale: string;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
+};
+
 export type GovernmentDecisionInput = {
   currentTimeMinutes: number;
+  sourceStateVersion: number;
   publicState: {
     parisThreat: number;
     cityStability: number;
@@ -231,12 +329,15 @@ export type GovernmentDecisionOutput = {
   severity: "minor" | "medium" | "major";
   confidence: number;
   privateRationale: string;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 export type FrenchCommandParserInput = {
   rawText: string;
   selectedNodeId?: MapNodeId;
   selectedUnitId?: string;
+  sourceStateVersion: number;
   visibleState: {
     currentTimeMinutes: number;
     parisThreat: number;
@@ -267,6 +368,8 @@ export type FrenchCommandParserOutput = {
   ambiguity: "none" | "low" | "medium" | "high";
   mappedOrderText: string;
   explanation: string;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 export type GermanAgentAction =
@@ -279,6 +382,7 @@ export type GermanAgentAction =
 
 export type GermanAgentInput = {
   currentTimeMinutes: number;
+  sourceStateVersion: number;
   strategicState: {
     parisThreat: number;
     flankGap: number;
@@ -320,11 +424,14 @@ export type GermanAgentOutput = {
   };
   confidence: number;
   rationale: string;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 export type EnvironmentalAdjudicatorInput = {
   eventType: "combat" | "movement" | "logistics" | "political" | "morale" | "urban_mobilization";
   currentTimeMinutes: number;
+  sourceStateVersion: number;
   nodeContext?: {
     nodeId: MapNodeId;
     terrain: "city" | "river" | "rail" | "road" | "field" | "crossing";
@@ -372,10 +479,13 @@ export type EnvironmentalAdjudicatorOutput = {
   severity: "minor" | "medium" | "major";
   durationMinutes: number;
   rationale: string;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 export type ReportGeneratorInput = {
   currentTimeMinutes: number;
+  sourceStateVersion: number;
   publicState: {
     parisThreat: number;
     observedFlankGap: number;
@@ -400,6 +510,9 @@ export type ReportGeneratorOutput = {
   advisorLine: string;
   knowledgeHint?: string;
   privateRationale: string;
+  shouldReport: boolean;
+  sourceGameTimeMinutes: number;
+  sourceStateVersion: number;
 };
 
 export type EndingType =

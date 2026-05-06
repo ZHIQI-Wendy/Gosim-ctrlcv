@@ -37,6 +37,9 @@ export function reportGeneratorMock(input: ReportGeneratorInput): ReportGenerato
     reportText,
     advisorLine,
     knowledgeHint,
-    privateRationale: "Summarized latest public events while avoiding hidden-state disclosure."
+    privateRationale: "Summarized latest public events while avoiding hidden-state disclosure.",
+    shouldReport: true,
+    sourceGameTimeMinutes: input.currentTimeMinutes,
+    sourceStateVersion: 1
   };
 }

@@ -25,7 +25,9 @@ export function governmentDecisionMock(
       durationMinutes: 0,
       severity: "minor",
       confidence: 0.65,
-      privateRationale: "No intervention threshold triggered."
+      privateRationale: "No intervention threshold triggered.",
+      sourceGameTimeMinutes: input.currentTimeMinutes,
+      sourceStateVersion: 1
     };
   }
 
@@ -43,6 +45,8 @@ export function governmentDecisionMock(
     durationMinutes: 120,
     severity: "medium",
     confidence: 0.62,
-    privateRationale: "Political intervention stabilizes command and home-front pressure."
+    privateRationale: "Political intervention stabilizes command and home-front pressure.",
+    sourceGameTimeMinutes: input.currentTimeMinutes,
+    sourceStateVersion: 1
   };
 }

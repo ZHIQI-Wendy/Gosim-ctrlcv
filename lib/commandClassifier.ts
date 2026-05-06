@@ -11,6 +11,7 @@ export function classifyCommand(
     rawText: inputText,
     selectedNodeId,
     selectedUnitId,
+    sourceStateVersion: state.stateVersion,
     visibleState: {
       currentTimeMinutes: state.currentTimeMinutes,
       parisThreat: state.parisThreat,

@@ -18,7 +18,9 @@ export function environmentalAdjudicatorMock(
       },
       severity: "minor",
       durationMinutes: 0,
-      rationale: "No strong environmental trigger detected."
+      rationale: "No strong environmental trigger detected.",
+      sourceGameTimeMinutes: input.currentTimeMinutes,
+      sourceStateVersion: 1
     };
   }
 
@@ -35,6 +37,8 @@ export function environmentalAdjudicatorMock(
     },
     severity: "medium",
     durationMinutes: 30,
-    rationale: "Operational friction under high pressure reduced effectiveness."
+    rationale: "Operational friction under high pressure reduced effectiveness.",
+    sourceGameTimeMinutes: input.currentTimeMinutes,
+    sourceStateVersion: 1
   };
 }

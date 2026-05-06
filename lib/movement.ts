@@ -349,6 +349,12 @@ export function renderMovementLine(svg: SVGSVGElement, option: MovementOption, i
 export function cloneAndClampState(state: GameState): GameState {
   return clampState({
     ...state,
+    pendingAgentState: {
+      french: { ...state.pendingAgentState.french },
+      german: { ...state.pendingAgentState.german },
+      director: { ...state.pendingAgentState.director },
+      reporter: { ...state.pendingAgentState.reporter }
+    },
     units: state.units.map((unit) => ({ ...unit })),
     nodes: state.nodes.map((node) => ({ ...node })),
     edges: state.edges.map((edge) => ({ ...edge, points: edge.points.map((point) => ({ ...point })) })),

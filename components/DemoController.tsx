@@ -15,7 +15,7 @@ type DemoScenario = {
 
 interface DemoControllerProps {
   reportsCount: number;
-  isDecisionPending: boolean;
+  hasPendingAgents: boolean;
   disabled: boolean;
   setAction: (action: AllowedAction) => void;
   enqueueCommand: (text: string) => void;
@@ -76,7 +76,7 @@ export function DemoController(props: DemoControllerProps) {
   const [status, setStatus] = useState("Preparing demo autorun.");
   const [runningId, setRunningId] = useState<string | null>(null);
   const reportsRef = useRef(props.reportsCount);
-  const pendingRef = useRef(props.isDecisionPending);
+  const pendingRef = useRef(props.hasPendingAgents);
   const hasStartedRef = useRef(false);
 
   useEffect(() => {
@@ -84,8 +84,8 @@ export function DemoController(props: DemoControllerProps) {
   }, [props.reportsCount]);
 
   useEffect(() => {
-    pendingRef.current = props.isDecisionPending;
-  }, [props.isDecisionPending]);
+    pendingRef.current = props.hasPendingAgents;
+  }, [props.hasPendingAgents]);
 
   useEffect(() => {
     void fetch("/api/demo-controller")

@@ -1,4 +1,5 @@
 import {
+  DirectorOutput,
   AllowedAction,
   EnvironmentalAdjudicatorOutput,
   FrenchCommandParserOutput,
@@ -192,6 +193,43 @@ export function validateGovernmentDecision(output: GovernmentDecisionOutput): Go
   };
 }
 
+export function validateDirectorOutput(output: DirectorOutput): DirectorOutput {
+  return {
+    ...output,
+    stateDelta: {
+      cityStability: clamp(output.stateDelta.cityStability, -12, 12),
+      politicalPressure: clamp(output.stateDelta.politicalPressure, -12, 12),
+      commandCohesion: clamp(output.stateDelta.commandCohesion, -6, 6),
+      governmentCollapseRisk: clamp(output.stateDelta.governmentCollapseRisk, -20, 20),
+      alliedOperationalMomentum: clamp(output.stateDelta.alliedOperationalMomentum, -8, 8),
+      germanOperationalMomentum: clamp(output.stateDelta.germanOperationalMomentum, -8, 8),
+      railwayCongestion: clamp(output.stateDelta.railwayCongestion, -12, 12),
+      shortTermRedeployDelayMinutes: clamp(output.stateDelta.shortTermRedeployDelayMinutes, 0, 60)
+    },
+    unitDelta: (output.unitDelta ?? []).slice(0, 8).map((delta) => ({
+      unitId: String(delta.unitId),
+      strengthDeltaPct: clamp(delta.strengthDeltaPct, -0.03, 0.03),
+      moraleDelta: clamp(delta.moraleDelta, -5, 5),
+      fatigueDelta: clamp(delta.fatigueDelta, -5, 6),
+      supplyDelta: clamp(delta.supplyDelta, -5, 5),
+      cohesionDelta: clamp(delta.cohesionDelta, -5, 5),
+      readinessDelta: clamp(delta.readinessDelta, -5, 5)
+    })),
+    nodeDelta: (output.nodeDelta ?? []).slice(0, 4).map((delta) => ({
+      nodeId: delta.nodeId,
+      controlPressureDelta: clamp(delta.controlPressureDelta, -10, 10),
+      defenseValueDelta: clamp(delta.defenseValueDelta, -2, 2),
+      supplyValueDelta: clamp(delta.supplyValueDelta, -2, 2),
+      transportValueDelta: clamp(delta.transportValueDelta, -2, 2)
+    })),
+    confidence: clamp(output.confidence, 0, 1),
+    privateRationale: String(output.privateRationale ?? "Director rationale unavailable.").slice(
+      0,
+      REPORT_TEXT_BOUNDS.privateRationaleMax
+    )
+  };
+}
+
 export function validateEnvironmentalOutput(
   output: EnvironmentalAdjudicatorOutput
 ): EnvironmentalAdjudicatorOutput {
@@ -234,6 +272,7 @@ export function validateEnvironmentalOutput(
 
 export function validateReportOutput(output: ReportGeneratorOutput): ReportGeneratorOutput {
   return {
+    ...output,
     headline: String(output.headline ?? "Situation Update").slice(0, REPORT_TEXT_BOUNDS.headlineMax),
     reportText: String(output.reportText ?? "No new public report.").slice(0, REPORT_TEXT_BOUNDS.reportTextMax),
     advisorLine: String(output.advisorLine ?? "Continue deliberate coordination.").slice(0, REPORT_TEXT_BOUNDS.advisorLineMax),
@@ -243,7 +282,10 @@ export function validateReportOutput(output: ReportGeneratorOutput): ReportGener
     privateRationale: String(output.privateRationale ?? "No internal rationale provided.").slice(
       0,
       REPORT_TEXT_BOUNDS.privateRationaleMax
-    )
+    ),
+    shouldReport: Boolean(output.shouldReport),
+    sourceGameTimeMinutes: Number.isFinite(output.sourceGameTimeMinutes) ? output.sourceGameTimeMinutes : 0,
+    sourceStateVersion: Number.isFinite(output.sourceStateVersion) ? output.sourceStateVersion : 1
   };
 }
 

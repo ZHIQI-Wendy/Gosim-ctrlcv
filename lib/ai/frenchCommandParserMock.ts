@@ -36,6 +36,8 @@ export function frenchCommandParserMock(
     historicalValidity: action === "INVALID_TO_CHAOS" ? "impossible" : "high",
     ambiguity: input.rawText.trim().length < 10 ? "medium" : "low",
     mappedOrderText: input.rawText.trim().slice(0, 120) || "No text",
-    explanation: `Mapped to ${action} by mock parser.`
+    explanation: `Mapped to ${action} by mock parser.`,
+    sourceGameTimeMinutes: input.visibleState.currentTimeMinutes,
+    sourceStateVersion: 1
   };
 }

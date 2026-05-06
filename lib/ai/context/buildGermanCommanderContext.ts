@@ -41,6 +41,7 @@ export function buildGermanCommanderContext(state: GameState, recentEvents: stri
 
   return {
     currentTimeMinutes: state.currentTimeMinutes,
+    sourceStateVersion: state.stateVersion,
     strategicState: {
       parisThreat: state.parisThreat,
       flankGap: state.flankGap,

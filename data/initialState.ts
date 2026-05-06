@@ -224,6 +224,7 @@ function cloneUnits(): Unit[] {
 export function createInitialGameState(): GameState {
   return {
     currentTimeMinutes: 0,
+    stateVersion: 1,
     gameEnded: false,
 
     commandCohesion: initialGlobalState.commandCohesion,
@@ -277,6 +278,13 @@ export function createInitialGameState(): GameState {
       logisticsMaster: initialGlobalState.outcomeScores.logisticsMaster,
       tacticalGamble: initialGlobalState.outcomeScores.tacticalGamble,
       ahistoricalCollapse: initialGlobalState.outcomeScores.ahistoricalCollapse
+    },
+
+    pendingAgentState: {
+      french: { status: "idle", lastRunMinutes: 0, pending: false },
+      german: { status: "idle", lastRunMinutes: 0, pending: false },
+      director: { status: "idle", lastRunMinutes: 0, pending: false },
+      reporter: { status: "idle", lastRunMinutes: 0, pending: false }
     }
   };
 }

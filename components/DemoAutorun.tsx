@@ -76,7 +76,8 @@ export function DemoAutorun({
       const startedDeadline = Date.now() + 15000;
       while (!cancelled && Date.now() < startedDeadline) {
         const snapshot = useGameStore.getState();
-        if (snapshot.isDecisionPending || snapshot.pendingCommands.length === 0) {
+        const pending = Object.values(snapshot.game.pendingAgentState).some((agent) => agent.pending);
+        if (pending || snapshot.pendingCommands.length === 0) {
           break;
         }
         await sleep(150);
@@ -85,7 +86,8 @@ export function DemoAutorun({
       const finishedDeadline = Date.now() + 25000;
       while (!cancelled && Date.now() < finishedDeadline) {
         const snapshot = useGameStore.getState();
-        if (!snapshot.isDecisionPending && snapshot.pendingCommands.length === 0) {
+        const pending = Object.values(snapshot.game.pendingAgentState).some((agent) => agent.pending);
+        if (!pending && snapshot.pendingCommands.length === 0) {
           return;
         }
         await sleep(200);

@@ -16,6 +16,7 @@ export function buildReportContext(
   const orderContext = buildOrderContext(state);
   return {
     currentTimeMinutes: state.currentTimeMinutes,
+    sourceStateVersion: state.stateVersion,
     publicState: {
       parisThreat: state.parisThreat,
       observedFlankGap: state.observedFlankGap,
