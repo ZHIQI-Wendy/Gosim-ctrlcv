@@ -411,6 +411,6 @@ Open `http://localhost:3000`.
 
 # Demo Flow
 
-Please click the link:https://drive.google.com/drive/folders/1MTh3kj7e2DAII_qbYp-YGcXkiSQWBD_0?usp=drive_link
+Please click the link: https://drive.google.com/drive/folders/1MTh3kj7e2DAII_qbYp-YGcXkiSQWBD_0?usp=drive_link
 
 
