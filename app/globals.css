@@ -501,9 +501,6 @@ textarea {
 }
 
 .decision-strip {
-    min-height: 56px;
-    max-height: 72px;
-    overflow: auto;
     display: grid;
     gap: 5px;
     color: #0d293e;
@@ -521,6 +518,21 @@ textarea {
     border-color: rgba(143, 108, 71, 0.62);
 }
 
+.decision-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.decision-spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    border: 2px solid rgba(13, 41, 62, 0.2);
+    border-top-color: #0d293e;
+    animation: decision-spin 0.8s linear infinite;
+}
+
 .decision-item strong {
     font-size: 14px;
     color: #0d293e;
@@ -533,6 +545,12 @@ textarea {
     line-height: 1.2;
     color: #0d293e;
     /*color: #dcc8a2;*/
+}
+
+@keyframes decision-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .command-input-row {
@@ -585,6 +603,10 @@ textarea {
 
 .city-popup {
     width: 100%;
+}
+
+.city-popup p {
+    margin: 0.1em;
 }
 
 .popup-meter {

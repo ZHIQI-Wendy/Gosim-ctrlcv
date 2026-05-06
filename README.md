@@ -1,5 +1,5 @@
 # GOSIM 2026 - CtrlCV 
-
+![screenshot.png](assets/img/screenshot.png)
 # 🎮 What If: Marne
 
 An AI-supported interactive historical strategy experience built for the **Gosim Hackathon (HCI × Education Track)**.

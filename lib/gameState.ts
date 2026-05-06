@@ -23,6 +23,7 @@ import { calculateParisThreat } from "@/lib/parisThreat";
 import { gameMinutesFromRealSeconds, SpeedLevel } from "@/lib/timeLoop";
 import { clamp, makeId } from "@/lib/utils";
 import { validateEnvironmentalOutput, validateFrenchParserOutput, validateGermanOutput, validateGovernmentDecision, validateReportOutput } from "@/lib/validators";
+import { GAME_CONFIG } from "@/lib/config/gameConfig";
 import {
   EndingType,
   GameState,
@@ -213,6 +214,126 @@ function maybeNeedsGovernmentDecision(state: GameState, recentEvents: string[]):
 
 function mergeRecentEvents(existing: string[], additions: string[]): string[] {
   return [...existing, ...additions].slice(-24);
+}
+
+function decisionStatusText(commands: PlayerCommandIntent[]): string {
+  return commands.length > 0 ? "Orders relayed through staff channels." : "Operational assessment in progress.";
+}
+
+function applyDecisionBundleToGame(
+  game: GameState,
+  bundle: DecisionBundle
+): { events: string[]; publicEvents: PublicEvent[] } {
+  const liveEvents: string[] = [...bundle.eventLabels];
+  const livePublicEvents: PublicEvent[] = [];
+
+  for (const output of bundle.parserOutputs) {
+    game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes));
+  }
+
+  const germanResult = applyGermanIntent(game, bundle.germanOutput);
+  liveEvents.push(germanResult.event);
+  livePublicEvents.push(germanResult.publicEvent);
+
+  const orderOutcome = processOrders(game);
+  liveEvents.push(...orderOutcome.events);
+  livePublicEvents.push(...orderOutcome.publicEvents);
+
+  if (bundle.governmentOutput?.trigger) {
+    game.cityStability = clamp(game.cityStability + bundle.governmentOutput.stateDelta.cityStability);
+    game.politicalPressure = clamp(game.politicalPressure + bundle.governmentOutput.stateDelta.politicalPressure);
+    game.commandCohesion = clamp(game.commandCohesion + bundle.governmentOutput.stateDelta.commandCohesion);
+    game.governmentCollapseRisk = clamp(
+      game.governmentCollapseRisk + bundle.governmentOutput.stateDelta.governmentCollapseRisk
+    );
+    game.alliedOperationalMomentum = clamp(
+      game.alliedOperationalMomentum + bundle.governmentOutput.stateDelta.alliedOperationalMomentum
+    );
+
+    livePublicEvents.push({
+      type: "government_decision",
+      resultSummary: bundle.governmentOutput.publicMessage
+    });
+  }
+
+  for (const fallbackMessage of bundle.fallbackMessages) {
+    appendFallbackReport(game, fallbackMessage);
+  }
+
+  if (bundle.report) {
+    pushReport(game, {
+      headline: bundle.report.headline,
+      reportText: bundle.report.reportText,
+      advisorLine: bundle.report.advisorLine,
+      knowledgeHint: bundle.report.knowledgeHint,
+      eventType: livePublicEvents[livePublicEvents.length - 1]?.type ?? "decision"
+    });
+  }
+
+  return {
+    events: liveEvents,
+    publicEvents: livePublicEvents
+  };
+}
+
+function applyEnvironmentalBundleToGame(game: GameState, bundle: EnvironmentalBundle): void {
+  if (!bundle.output) return;
+
+  const output = bundle.output;
+  for (const fallbackMessage of bundle.fallbackMessages) {
+    appendFallbackReport(game, fallbackMessage);
+  }
+
+  if (output.modifierType === "no_modifier") return;
+
+  const nodeUnits = game.units.filter((unit) => unit.nodeId === bundle.nodeId);
+  const impacted =
+    output.affectedUnitIds.length > 0
+      ? game.units.filter((unit) => output.affectedUnitIds.includes(unit.id))
+      : nodeUnits;
+
+  impacted.forEach((unit) => {
+    if (output.affectedSide !== "both" && output.affectedSide !== "none" && unit.side !== output.affectedSide) {
+      return;
+    }
+
+    unit.strength = Math.max(0, unit.strength * (1 - output.numericModifiers.extraStrengthLossPct));
+    unit.morale = clamp(unit.morale + output.numericModifiers.moraleDelta);
+    unit.fatigue = clamp(unit.fatigue + output.numericModifiers.fatigueDelta);
+  });
+
+  game.shortTermRedeployDelayMinutes += output.numericModifiers.movementDelayMinutes;
+  const node = game.nodes.find((item) => item.id === bundle.nodeId);
+  if (node) {
+    node.controlPressure = clamp((node.controlPressure ?? 0) + output.numericModifiers.nodeControlDelta, -100, 100);
+  }
+
+  if (bundle.report) {
+    pushReport(game, {
+      headline: bundle.report.headline,
+      reportText: bundle.report.reportText,
+      advisorLine: bundle.report.advisorLine,
+      knowledgeHint: bundle.report.knowledgeHint,
+      eventType: "environmental_modifier"
+    });
+  }
+}
+
+function applyReportBundleToGame(game: GameState, bundle: ReportBundle): void {
+  const report = bundle.report;
+  if (!report) return;
+
+  for (const fallbackMessage of bundle.fallbackMessages) {
+    appendFallbackReport(game, fallbackMessage);
+  }
+
+  pushReport(game, {
+    headline: report.headline,
+    reportText: report.reportText,
+    advisorLine: report.advisorLine,
+    knowledgeHint: report.knowledgeHint,
+    eventType: bundle.eventType
+  });
 }
 
 function runSimStep(state: GameState): PublicEvent[] {
@@ -422,10 +543,7 @@ export const useGameStore = create<GameStore>((set, get) => {
   ) => {
     set(() => ({
       isDecisionPending: true,
-      aiStatusText:
-        commands.length > 0
-          ? "Orders relayed through staff channels."
-          : "Operational assessment in progress."
+      aiStatusText: decisionStatusText(commands)
     }));
 
     void resolveDecisionBundle(snapshotState, commands, recentEvents, tone)
@@ -437,51 +555,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (prev.sessionId !== sessionId) return prev;
 
           const game = cloneAndClampState(prev.game);
-          const liveEvents: string[] = [...bundle.eventLabels];
-          const livePublicEvents: PublicEvent[] = [];
-
-          for (const output of bundle.parserOutputs) {
-            game.orderQueue.push(createOrderFromParserOutput(output, game.currentTimeMinutes));
-          }
-
-          const germanResult = applyGermanIntent(game, bundle.germanOutput);
-          liveEvents.push(germanResult.event);
-          livePublicEvents.push(germanResult.publicEvent);
-
-          const orderOutcome = processOrders(game);
-          liveEvents.push(...orderOutcome.events);
-          livePublicEvents.push(...orderOutcome.publicEvents);
-
-          if (bundle.governmentOutput?.trigger) {
-            game.cityStability = clamp(game.cityStability + bundle.governmentOutput.stateDelta.cityStability);
-            game.politicalPressure = clamp(game.politicalPressure + bundle.governmentOutput.stateDelta.politicalPressure);
-            game.commandCohesion = clamp(game.commandCohesion + bundle.governmentOutput.stateDelta.commandCohesion);
-            game.governmentCollapseRisk = clamp(
-              game.governmentCollapseRisk + bundle.governmentOutput.stateDelta.governmentCollapseRisk
-            );
-            game.alliedOperationalMomentum = clamp(
-              game.alliedOperationalMomentum + bundle.governmentOutput.stateDelta.alliedOperationalMomentum
-            );
-
-            livePublicEvents.push({
-              type: "government_decision",
-              resultSummary: bundle.governmentOutput.publicMessage
-            });
-          }
-
-          for (const fallbackMessage of bundle.fallbackMessages) {
-            appendFallbackReport(game, fallbackMessage);
-          }
-
-          if (bundle.report) {
-            pushReport(game, {
-              headline: bundle.report.headline,
-              reportText: bundle.report.reportText,
-              advisorLine: bundle.report.advisorLine,
-              knowledgeHint: bundle.report.knowledgeHint,
-              eventType: livePublicEvents[livePublicEvents.length - 1]?.type ?? "decision"
-            });
-          }
+          const { events: liveEvents } = applyDecisionBundleToGame(game, bundle);
 
           const mergedRecentEvents = mergeRecentEvents(prev.recentEvents, liveEvents);
           const ended = game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
@@ -531,52 +605,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (prev.sessionId !== sessionId || !bundle.output) return prev;
 
           const game = cloneAndClampState(prev.game);
-          const output = bundle.output;
-          for (const fallbackMessage of bundle.fallbackMessages) {
-            appendFallbackReport(game, fallbackMessage);
-          }
-
-          if (output.modifierType !== "no_modifier") {
-            const nodeUnits = game.units.filter((unit) => unit.nodeId === bundle.nodeId);
-            const impacted =
-              output.affectedUnitIds.length > 0
-                ? game.units.filter((unit) => output.affectedUnitIds.includes(unit.id))
-                : nodeUnits;
-
-            impacted.forEach((unit) => {
-              if (
-                output.affectedSide !== "both" &&
-                output.affectedSide !== "none" &&
-                unit.side !== output.affectedSide
-              ) {
-                return;
-              }
-
-              unit.strength = Math.max(0, unit.strength * (1 - output.numericModifiers.extraStrengthLossPct));
-              unit.morale = clamp(unit.morale + output.numericModifiers.moraleDelta);
-              unit.fatigue = clamp(unit.fatigue + output.numericModifiers.fatigueDelta);
-            });
-
-            game.shortTermRedeployDelayMinutes += output.numericModifiers.movementDelayMinutes;
-            const node = game.nodes.find((item) => item.id === bundle.nodeId);
-            if (node) {
-              node.controlPressure = clamp(
-                (node.controlPressure ?? 0) + output.numericModifiers.nodeControlDelta,
-                -100,
-                100
-              );
-            }
-
-            if (bundle.report) {
-              pushReport(game, {
-                headline: bundle.report.headline,
-                reportText: bundle.report.reportText,
-                advisorLine: bundle.report.advisorLine,
-                knowledgeHint: bundle.report.knowledgeHint,
-                eventType: "environmental_modifier"
-              });
-            }
-          }
+          applyEnvironmentalBundleToGame(game, bundle);
 
           return { game };
         });
@@ -599,19 +628,8 @@ export const useGameStore = create<GameStore>((set, get) => {
           if (prev.sessionId !== sessionId) return prev;
 
           const game = cloneAndClampState(prev.game);
-          const report = bundle.report;
-          if (!report) return prev;
-          for (const fallbackMessage of bundle.fallbackMessages) {
-            appendFallbackReport(game, fallbackMessage);
-          }
-
-          pushReport(game, {
-            headline: report.headline,
-            reportText: report.reportText,
-            advisorLine: report.advisorLine,
-            knowledgeHint: report.knowledgeHint,
-            eventType: bundle.eventType
-          });
+          if (!bundle.report) return prev;
+          applyReportBundleToGame(game, bundle);
 
           return { game };
         });
@@ -661,6 +679,125 @@ export const useGameStore = create<GameStore>((set, get) => {
       set(() => ({ isTickRunning: true }));
       try {
         const minutes = gameMinutesFromRealSeconds(realSecondsElapsed, get().speedLevel);
+
+        if (GAME_CONFIG.aiExecutionMode === "sync") {
+          const snapshot = get();
+          const game = cloneAndClampState(snapshot.game);
+          const loopState = { ...snapshot.loopState };
+          let recentEvents = [...snapshot.recentEvents];
+          let pendingCommands = snapshot.pendingCommands;
+
+          if (snapshot.selectedNodeId) {
+            maybeDiscoverParisTransport(game, snapshot.selectedNodeId);
+          }
+
+          loopState.simAccumulatorMinutes += minutes;
+          loopState.decisionAccumulatorMinutes += minutes;
+          loopState.combatAccumulatorMinutes += minutes;
+          loopState.reportAccumulatorMinutes += minutes;
+
+          while (loopState.simAccumulatorMinutes >= SIM_STEP_GAME_MINUTES && !game.gameEnded) {
+            loopState.simAccumulatorMinutes -= SIM_STEP_GAME_MINUTES;
+
+            const simPublicEvents = runSimStep(game);
+            const stepEvents = simPublicEvents.map((event) => event.resultSummary);
+            let mergedPublicEvents: PublicEvent[] = [...simPublicEvents];
+
+            const orderProgress = processOrders(game);
+            stepEvents.push(...orderProgress.events);
+            mergedPublicEvents = [...mergedPublicEvents, ...orderProgress.publicEvents];
+
+            if (loopState.combatAccumulatorMinutes >= COMBAT_STEP_GAME_MINUTES) {
+              loopState.combatAccumulatorMinutes -= COMBAT_STEP_GAME_MINUTES;
+              const combat = runCombatStep(game);
+              stepEvents.push(...combat.events);
+              mergedPublicEvents = [...mergedPublicEvents, ...combat.publicEvents];
+
+              for (const majorCombat of combat.majorCombats) {
+                const envBundle = await resolveEnvironmentalBundle(game, majorCombat, snapshot.reportTone);
+                applyEnvironmentalBundleToGame(game, envBundle);
+              }
+            }
+
+            const majorEvent = mergedPublicEvents.some((event) => {
+              const kind = event.type.toLowerCase();
+              return (
+                kind.includes("combat") ||
+                kind.includes("government") ||
+                kind.includes("urban") ||
+                kind.includes("environmental")
+              );
+            });
+
+            if (
+              mergedPublicEvents.length > 0 &&
+              (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES || majorEvent)
+            ) {
+              if (loopState.reportAccumulatorMinutes >= REPORT_MIN_INTERVAL_GAME_MINUTES) {
+                loopState.reportAccumulatorMinutes -= REPORT_MIN_INTERVAL_GAME_MINUTES;
+              } else {
+                loopState.reportAccumulatorMinutes = 0;
+              }
+
+              const reportBundle = await resolveReportBundle(game, mergedPublicEvents, snapshot.reportTone);
+              applyReportBundleToGame(game, reportBundle);
+            }
+
+            recentEvents = mergeRecentEvents(recentEvents, stepEvents);
+
+            if (game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game)) {
+              game.gameEnded = true;
+              break;
+            }
+          }
+
+          let aiStatusText: string | null = snapshot.aiStatusText;
+          let isDecisionPending = snapshot.isDecisionPending;
+
+          if (loopState.decisionAccumulatorMinutes >= DECISION_STEP_GAME_MINUTES && !snapshot.isDecisionPending) {
+            loopState.decisionAccumulatorMinutes -= DECISION_STEP_GAME_MINUTES;
+            const commandsForDecision = [...pendingCommands];
+            pendingCommands = [];
+            aiStatusText = decisionStatusText(commandsForDecision);
+            isDecisionPending = true;
+
+            try {
+              const bundle = await resolveDecisionBundle(
+                game,
+                commandsForDecision,
+                recentEvents,
+                snapshot.reportTone
+              );
+              const applied = applyDecisionBundleToGame(game, bundle);
+              recentEvents = mergeRecentEvents(recentEvents, applied.events);
+            } catch (error) {
+              appendFallbackReport(game, error instanceof Error ? error.message : String(error));
+            }
+
+            aiStatusText = null;
+            isDecisionPending = false;
+          }
+
+          const ended = game.gameEnded || game.currentTimeMinutes >= TOTAL_GAME_HOURS * 60 || shouldEndGame(game);
+          if (ended) {
+            game.gameEnded = true;
+          }
+
+          set((prev) => {
+            if (prev.sessionId !== snapshot.sessionId) return { isTickRunning: false };
+            return {
+              game,
+              loopState,
+              recentEvents,
+              pendingCommands,
+              isTickRunning: false,
+              ending: ended ? resolveEnding(game) : prev.ending,
+              aiStatusText,
+              isDecisionPending
+            };
+          });
+          return;
+        }
 
         set((prev) => {
           const game = cloneAndClampState(prev.game);
@@ -736,10 +873,7 @@ export const useGameStore = create<GameStore>((set, get) => {
             loopState.decisionAccumulatorMinutes -= DECISION_STEP_GAME_MINUTES;
             const commandsForDecision = [...pendingCommands];
             pendingCommands = [];
-            aiStatusText =
-              commandsForDecision.length > 0
-                ? "Orders relayed through staff channels."
-                : "Operational assessment in progress.";
+            aiStatusText = decisionStatusText(commandsForDecision);
             isDecisionPending = true;
             launchDecisionCycle(game, commandsForDecision, recentEvents, prev.reportTone, prev.sessionId);
           }

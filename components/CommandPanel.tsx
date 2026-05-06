@@ -23,18 +23,6 @@ export function CommandPanel(props: CommandPanelProps) {
   const count = text.length;
 
   const limitedText = useMemo(() => text.slice(0, 160), [text]);
-  const latestDecisions = useMemo(
-    () =>
-      props.reports
-        .filter(
-          (report) =>
-            report.eventType?.includes("order") ||
-            report.eventType === "combat" ||
-            report.eventType?.startsWith("german_")
-        )
-        .slice(0, 2),
-    [props.reports]
-  );
 
   const sendCommand = () => {
     const payload = limitedText.trim();
@@ -45,21 +33,16 @@ export function CommandPanel(props: CommandPanelProps) {
 
   return (
     <section className="command-panel">
-      {/*<div className="decision-strip">*/}
-      {/*  {props.aiStatusText && (*/}
-      {/*    <article className="decision-item decision-item-pending">*/}
-      {/*      <strong>Staff Relay</strong>*/}
-      {/*      <p>{props.aiStatusText}</p>*/}
-      {/*    </article>*/}
-      {/*  )}*/}
-      {/*  {!props.aiStatusText && latestDecisions.length === 0 && <p>Issue an operational order.</p>}*/}
-      {/*  {latestDecisions.map((report) => (*/}
-      {/*    <article key={report.id} className="decision-item">*/}
-      {/*      <strong>{report.headline}</strong>*/}
-      {/*      <p>{report.reportText}</p>*/}
-      {/*    </article>*/}
-      {/*  ))}*/}
-      {/*</div>*/}
+      {props.aiStatusText && (
+        <div className="decision-strip" aria-live="polite" aria-busy="true">
+          <article className="decision-item decision-item-pending">
+            <div className="decision-item-row">
+              <span className="decision-spinner" aria-hidden />
+              <strong>Command is being issued</strong>
+            </div>
+          </article>
+        </div>
+      )}
 
       <div className="command-list">
         {strategyOptions.map((item) => {
