@@ -362,7 +362,8 @@ This project explores:
 * experiential learning
 * counterfactual reasoning through simulation
 
-## Stack
+---
+# Stack
 
 - Next.js (app shell)
 - React (UI)
@@ -371,7 +372,9 @@ This project explores:
 - Local rule engine tick every 3 seconds
 - Local mock narrator interface (LLM optional)
 
-## File Tree
+---
+
+# File Tree
 
 ```text
 .
@@ -401,7 +404,9 @@ This project explores:
 └── types.ts
 ```
 
-## Run
+---
+
+# Run
 
 ```bash
 npm install
@@ -410,7 +415,10 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-## Demo Flow (2-3 minutes)
+
+---
+
+# Demo Flow
 
 Please click the link:https://drive.google.com/drive/folders/1MTh3kj7e2DAII_qbYp-YGcXkiSQWBD_0?usp=drive_link
 
