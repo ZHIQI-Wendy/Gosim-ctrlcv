@@ -19,6 +19,7 @@ Instead of directly controlling units, players interact through **intent**:
 * Launch risky counterattacks
 * Reorganize logistics
 * Attempt unconventional strategies
+* And others
 
 The system interprets these decisions and transforms them into historically grounded consequences.
 
@@ -69,9 +70,11 @@ In reality, many battles were decided by:
 
 ## AI-Supported Situation Propagation Engine
 
-Instead of using traditional “HP reaches zero” victory conditions, the game runs on a **situation propagation model**.
+Instead of relying on traditional HP bars, damage formulas, or fixed scripted outcomes, the project uses a **Situation Propagation Engine**.
 
-```text id="gtfhlr"
+The battlefield is modeled as a network of evolving battlefield conditions (“situation tags”) rather than pure combat statistics.
+
+```text
 Player Action
 → Situation Tags Change
 → AI Agents React
@@ -79,61 +82,188 @@ Player Action
 → Collapse / Recovery / Reversal
 ```
 
-Player decisions change evolving battlefield conditions such as:
+Examples of battlefield situation tags:
 
-* railway congestion
 * flank exposure
-* morale instability
+* railway congestion
+* communication delay
 * command confusion
+* morale instability
 * supply pressure
+* overextension
 * political tension
+* misinformation
+* local disorder
 
-These conditions dynamically spread across the battlefield and influence future AI decisions.
+These tags interact and propagate dynamically across the battlefield.
 
-The result is a battlefield that behaves less like a scripted game and more like a living historical system.
+Example:
+
+```text
+Overextended Flank
++ Supply Pressure
+→ Vulnerable Position
+
+Vulnerable Position
++ Enemy Pressure
+→ Forced Retreat
+
+Forced Retreat
++ Communication Delay
+→ Local Collapse
+```
+
+This allows the system to naturally produce:
+
+* surprise breakthroughs
+* battlefield panic
+* failed offensives
+* tactical reversals
+* last-minute recoveries
+* underdog victories
+
+without relying on scripted events or hidden combat modifiers.
+
+The result is a battlefield that behaves more like a living historical system than a traditional strategy game.
 
 ---
 
-# 🤖 Multi-Agent Battlefield
+# 🤖 Multi-Agent Battlefield System
 
-The battlefield is driven by multiple AI-supported agents:
+The battlefield is driven by multiple AI-supported agents operating under limited information.
 
-* Friendly command agents
-* Enemy command agents
-* Logistics systems
-* Advisory agents
-* Political systems
+Agents do not have omniscient knowledge of the battlefield.
+Each agent reacts only to what it can realistically observe or infer.
+
+Core agents include:
+
+* Command Parser Agent
+* Feasibility Judge Agent
+* Friction Engine
+* Situation Engine
+* NPC Commander Agents
+* Outcome Judge Agent
+* Narrative Reporter
+* Memory Manager
 
 Each agent continuously evaluates:
 
 * battlefield conditions
 * strategic priorities
+* available resources
+* timing and delays
 * player intent
-* resource constraints
+* incomplete intelligence
+* operational risks
 
-This creates emergent behavior rather than fixed scripted outcomes.
+This creates emergent battlefield behavior instead of deterministic scripted outcomes.
 
 ---
 
-# 🧩 Persistent Historical Adaptation
+# 🌫 Fog of War & Battlefield Friction
 
-The system also experiments with persistent adaptation across playthroughs.
+A core design principle is that:
 
-Using:
+```text
+Orders are not instant reality.
+```
 
-* Agent memory
-* Historical data weighting
-* Strategy tracking
+Every command passes through a battlefield friction layer.
 
-AI agents can gradually adapt to player tendencies and modify future battlefield pressure points and breakthrough opportunities.
+The system simulates:
 
-This creates a dynamic loop where:
+* communication delay
+* weather disruption
+* terrain constraints
+* transport congestion
+* incomplete reconnaissance
+* command misunderstanding
+* fatigue and morale effects
 
-```text id="tsicg7"
+Example:
+
+```text
+Player Order:
+Mobilize Paris taxis to reinforce the right flank.
+
+System Result:
+Partial Success
+
+Effects:
+- Reinforcements arrive earlier
+- Traffic congestion delays part of the force
+- German reconnaissance notices abnormal movement near Paris
+```
+
+This allows battlefield situations to evolve organically rather than through fixed probabilities.
+
+---
+
+# 🧠 Persistent Replay Adaptation
+
+The project also experiments with persistent adaptation across playthroughs.
+
+Instead of hard-countering player strategies, the system remembers discovered historical breakthroughs and gradually changes battlefield conditions in future runs.
+
+Example:
+
+### First Playthrough
+
+```text
+Player successfully mobilizes Paris taxis.
+→ Recorded as a breakthrough strategy.
+```
+
+### Second Playthrough
+
+```text
+Variant adds:
+- fuel shortages
+- traffic congestion
+- slower civilian coordination
+```
+
+### Third Playthrough
+
+```text
+Variant adds:
+- earlier enemy reconnaissance
+- roadblocks
+- increased command suspicion
+```
+
+The original strategy still works, but no longer functions as a guaranteed solution.
+
+This creates a long-term adaptation loop:
+
+```text
 Player Learns History
 ↕
-System Learns Player Behavior
+System Learns Player Tendencies
 ```
+
+---
+
+# 🧩 Lightweight Memory Architecture
+
+The memory system is intentionally lightweight for the MVP.
+
+It stores:
+
+### Run Log
+
+Detailed record of battlefield actions, tag changes, and key decisions.
+
+### Scenario Memory
+
+Historical setup, fixed constraints, and scenario conditions.
+
+### Replay Memory
+
+Player-discovered breakthroughs and previously successful strategic patterns.
+
+Replay memory is used to generate future scenario variants while preserving historical plausibility.
+
 
 ---
 
@@ -263,6 +393,26 @@ Open `http://localhost:3000`.
 # ✨ Key Idea
 
 > History is not just something to memorize.
+
+---
+
+# 🎯 Design Philosophy
+
+The project is not trying to simulate exact military mathematics.
+
+It is trying to simulate:
+
+* battlefield uncertainty
+* operational friction
+* cascading failures
+* limited information
+* strategic adaptation
+* historical pressure
+
+Victory is not determined by eliminating enemy HP.
+
+Victory emerges when one side can no longer effectively pursue its objectives.
+
 
 > It is a fragile system of decisions, pressures, mistakes, and consequences.
 
